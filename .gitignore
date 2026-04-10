@@ -5,6 +5,8 @@ __pycache__/
 token.json
 .oauth_state
 agent-browser.json
+.agents/
+skills-lock.json
 /tmp/
 nohup.out
 *.log
