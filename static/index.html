@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clip Trimmer</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Clip Trimmer</h1>
+      <div id="auth-status">
+        <span id="auth-label">Checking…</span>
+        <button id="auth-btn" class="hidden"></button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Load panel -->
+      <section id="load-panel">
+        <div class="card">
+          <!-- Folder browser -->
+          <div id="folder-section">
+            <label for="folder-url">Your videos folder</label>
+            <div class="input-row">
+              <input
+                type="text"
+                id="folder-url"
+                placeholder="https://drive.google.com/drive/folders/…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="browse-btn">Browse</button>
+            </div>
+            <div id="folder-error" class="error hidden"></div>
+
+            <div id="file-list-wrap" class="hidden">
+              <div id="file-list-header">
+                <span id="file-count"></span>
+                <div id="file-list-header-btns">
+                  <label id="select-all-label" title="Select / deselect all">
+                    <input type="checkbox" id="select-all-cb" />
+                    All
+                  </label>
+                  <button id="load-selected-btn" class="small hidden">Load Selected (0)</button>
+                  <button id="refresh-btn" class="secondary small">Refresh</button>
+                </div>
+              </div>
+              <ul id="file-list"></ul>
+            </div>
+          </div>
+
+          <div class="divider"><span>or paste a direct file link</span></div>
+
+          <label for="drive-url">Direct file link</label>
+          <div class="input-row">
+            <input
+              type="text"
+              id="drive-url"
+              placeholder="https://drive.google.com/file/d/…/view"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="load-btn">Load</button>
+          </div>
+          <div id="load-error" class="error hidden"></div>
+
+          <div class="divider"><span>output destination</span></div>
+
+          <label for="output-folder-url">Clips output folder</label>
+          <div class="input-row">
+            <input
+              type="text"
+              id="output-folder-url"
+              placeholder="https://drive.google.com/drive/folders/… (leave blank to use source folder)"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+      </section>
+
+      <!-- Spinner -->
+      <section id="spinner-panel" class="hidden">
+        <div class="card center">
+          <div class="spinner"></div>
+          <p id="spinner-label">Downloading…</p>
+          <div id="buffer-bar-wrap" class="hidden">
+            <div id="buffer-bar"><div id="buffer-fill"></div></div>
+            <p id="buffer-label"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Success toast -->
+      <div id="success-toast" class="hidden"></div>
+
+      <!-- Editor panel -->
+      <section id="editor-panel" class="hidden">
+        <div class="card">
+          <p class="filename" id="video-filename"></p>
+
+          <div id="upper-area">
+            <!-- Left: clip queue sidebar -->
+            <div id="queue-sidebar">
+              <!-- Queue -->
+              <div id="queue-section" class="hidden">
+                <div class="queue-header">
+                  <span id="queue-count">0 clips queued</span>
+                  <div class="queue-header-btns">
+                    <button id="clear-queue-btn" class="secondary small">Clear all</button>
+                    <button id="upload-queue-btn" class="small">Upload Queue</button>
+                  </div>
+                </div>
+                <ul id="queue-list"></ul>
+                <div id="queue-progress" class="hidden">
+                  <div id="queue-bar"><div id="queue-fill"></div></div>
+                  <p id="queue-label"></p>
+                </div>
+              </div>
+            </div>
+
+            <div id="sidebar-resize-handle"></div>
+
+            <!-- Right: video + speed + controls + hotkeys -->
+            <div class="editor-main">
+              <div class="player-wrap">
+                <video id="player" preload="metadata">
+                  Your browser does not support HTML5 video.
+                </video>
+              </div>
+
+              <!-- Playback speed -->
+              <div class="speed-row">
+                <span class="speed-label">Speed</span>
+                <div class="speed-btns">
+                  <button class="speed-btn secondary small" data-speed="0.25">0.25×</button>
+                  <button class="speed-btn secondary small" data-speed="0.5">0.5×</button>
+                  <button class="speed-btn secondary small" data-speed="0.75">0.75×</button>
+                  <button class="speed-btn secondary small active" data-speed="1">1×</button>
+                  <button class="speed-btn secondary small" data-speed="1.5">1.5×</button>
+                  <button class="speed-btn secondary small" data-speed="2">2×</button>
+                </div>
+              </div>
+
+              <!-- Custom controls bar -->
+              <div class="player-controls">
+                <button id="frame-back-btn" class="ctrl-btn ctrl-secondary" title="Step back 20 frames">&#x23EE;</button>
+                <button id="play-pause-btn" class="ctrl-btn" title="Play / Pause">&#9654;</button>
+                <button id="frame-fwd-btn" class="ctrl-btn ctrl-secondary" title="Step forward 20 frames">&#x23ED;</button>
+                <button id="mute-btn" class="ctrl-btn" title="Mute / Unmute">&#128266;</button>
+                <button id="gear-btn" class="ctrl-btn ctrl-secondary" title="Configure hotkeys">&#9881;</button>
+                <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">&#x26F6;</button>
+              </div>
+
+              <!-- Hotkeys panel (expandable) -->
+              <div id="hotkeys-panel" class="hidden">
+                <div class="hotkeys-grid"></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Timeline (full width) -->
+          <div class="timeline-wrap">
+            <canvas id="timeline" height="100"></canvas>
+            <canvas id="waveform" height="48"></canvas>
+            <div class="tl-scrollbar-row">
+              <div id="tl-scrollbar" class="tl-scrollbar hidden">
+                <div id="tl-scrollbar-thumb" class="tl-scrollbar-thumb"></div>
+              </div>
+              <span id="tl-zoom-label" class="tl-zoom-label"></span>
+            </div>
+          </div>
+
+          <!-- Trim controls (below timeline) -->
+          <div id="trim-section">
+            <div class="trim-controls">
+              <div class="trim-point">
+                <label>In point</label>
+                <input type="text" id="in-time" placeholder="0:00.000" />
+                <button id="set-in-btn">Set to current</button>
+              </div>
+              <div class="trim-point">
+                <label>Out point</label>
+                <input type="text" id="out-time" placeholder="0:00.000" />
+                <button id="set-out-btn">Set to current</button>
+              </div>
+            </div>
+
+            <div class="trim-range" id="trim-range-display"></div>
+
+            <!-- Output filename + group tag -->
+            <div class="trim-meta-row">
+              <div class="rename-row">
+                <label for="out-filename">Save as</label>
+                <input type="text" id="out-filename" placeholder="filename.mp4" />
+              </div>
+              <div class="group-tag-row">
+                <label for="group-tag">Group tag <span class="muted-hint">(e.g. "highlights" → highlights_01.mp4…)</span></label>
+                <input type="text" id="group-tag" placeholder="optional group name" autocomplete="off" spellcheck="false" />
+              </div>
+            </div>
+
+            <div id="trim-error" class="error hidden"></div>
+
+            <div class="action-row">
+              <button id="split-btn" class="secondary" title="Split queued clip at playhead (S)">Split at Playhead</button>
+              <button id="add-queue-btn" class="secondary">+ Add to Queue</button>
+              <button id="trim-btn">Trim &amp; Upload Now</button>
+            </div>
+          </div>
+
+          <div class="bottom-row">
+            <button id="reset-btn" class="secondary">Reset &amp; Clear All</button>
+            <button id="add-clip-btn" class="secondary">+ Load Another Clip</button>
+            <button id="reload-btn" class="secondary">Reload clip</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Error / event log panel -->
+  <div id="log-panel">
+    <div id="log-header">
+      <span id="log-title">&#9656; Event Log</span>
+      <span id="log-badge" class="hidden">0</span>
+      <div id="log-header-btns">
+        <button id="log-copy-btn" class="small secondary">Copy</button>
+        <button id="log-clear-btn" class="small secondary">Clear</button>
+        <button id="log-toggle-btn" class="small secondary">Show / Hide</button>
+      </div>
+    </div>
+    <ul id="log-list"></ul>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
