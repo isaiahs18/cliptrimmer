@@ -11,7 +11,7 @@ load_dotenv()
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 TOKEN_FILE = Path("token.json")
-REDIRECT_URI = "http://localhost:8080/auth/callback"
+REDIRECT_URI = os.environ.get("REDIRECT_URI", "http://localhost:8080/auth/callback")
 
 router = APIRouter()
 
