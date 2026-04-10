@@ -232,9 +232,9 @@
   fullscreenBtn.addEventListener("click", toggleFullscreen);
   player.addEventListener("click", togglePlay);
 
-  player.addEventListener("play",    () => { playPauseBtn.textContent = "\u23F8"; _decodeRecoveries = 0; scrubCanvas.style.display = "none"; });
+  player.addEventListener("play",    () => { playPauseBtn.innerHTML = '<i class="ph-duotone ph-pause"></i>'; _decodeRecoveries = 0; scrubCanvas.style.display = "none"; });
   player.addEventListener("pause",   () => {
-    playPauseBtn.textContent = "\u25B6";
+    playPauseBtn.innerHTML = '<i class="ph-duotone ph-play"></i>';
     _jklStopScrub();
     _jklSpeed = 0;
   });
@@ -276,7 +276,7 @@
   }
 
   player.addEventListener("waiting", () => {
-    playPauseBtn.textContent = "\u23F8";
+    playPauseBtn.innerHTML = '<i class="ph-duotone ph-pause"></i>';
     armStallTimer();
   });
   player.addEventListener("playing", () => { clearTimeout(_stallTimer); });
@@ -285,7 +285,7 @@
     logAppend("WARN", `Video stalled at ${player.currentTime.toFixed(2)}s (readyState=${player.readyState})`);
     armStallTimer();
   });
-  player.addEventListener("canplay", () => { clearTimeout(_stallTimer); playPauseBtn.textContent = player.paused ? "\u25B6" : "\u23F8"; });
+  player.addEventListener("canplay", () => { clearTimeout(_stallTimer); playPauseBtn.innerHTML = player.paused ? '<i class="ph-duotone ph-play"></i>' : '<i class="ph-duotone ph-pause"></i>'; });
   player.addEventListener("error",   () => {
     if (_playerResetting) return; // intentional src clear — not a real error
     clearTimeout(_stallTimer);
@@ -308,7 +308,7 @@
     }
 
     dragTarget = null; // cancel any active timeline drag
-    playPauseBtn.textContent = "\u25B6";
+    playPauseBtn.innerHTML = '<i class="ph-duotone ph-play"></i>';
     logAppend("ERROR", `Player error ${code} (${codeNames[code] || "?"}): ${player.error?.message || "unknown"}`);
     // Auto-recover from DECODE errors: reload stream and skip 0.5s past the bad packet.
     // Cap at 3 consecutive attempts; if still failing, skip 2s forward and give up.
@@ -343,14 +343,16 @@
     }
   });
   player.addEventListener("volumechange", () => {
-    muteBtn.textContent = (player.muted || player.volume === 0) ? "\uD83D\uDD07" : "\uD83D\uDD0A";
+    muteBtn.innerHTML = (player.muted || player.volume === 0) ? '<i class="ph-duotone ph-speaker-slash"></i>' : '<i class="ph-duotone ph-speaker-high"></i>';
   });
   document.addEventListener("fullscreenchange", () => {
-    fullscreenBtn.textContent = document.fullscreenElement ? "\u2715" : "\u26F6";
+    fullscreenBtn.innerHTML = document.fullscreenElement ? '<i class="ph-duotone ph-arrows-in"></i>' : '<i class="ph-duotone ph-arrows-out"></i>';
   });
 
   logToggleBtn.addEventListener("click", () => {
     logPanel.classList.toggle("log-panel-open");
+    const open = logPanel.classList.contains("log-panel-open");
+    logToggleBtn.innerHTML = open ? '<i class="ph-duotone ph-caret-up"></i>' : '<i class="ph-duotone ph-caret-down"></i>';
     _logErrorCount = 0;
     logBadge.classList.add("hidden");
     logBadge.textContent = "0";
@@ -1055,6 +1057,7 @@
     const hit = hitMarker(e.clientX);
     if (hit) {
       dragTarget = hit;
+      timeline.style.cursor = "grabbing";
       // When grabbing a clip edge, sync in/out to that clip so the editor stays aware
       if (typeof hit === "object") {
         const item = clipQueue[hit.qi];
@@ -1064,7 +1067,7 @@
           inTimeInput.value = fmtTime(inPoint);
           outTimeInput.value = fmtTime(outPoint);
           outFilenameInput.value = item.filename;
-          addQueueBtn.textContent = `Update Clip ${hit.qi + 1}`;
+          addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${hit.qi + 1}`;
           updateRangeDisplay();
           renderQueue();
         }
@@ -1148,12 +1151,13 @@
     if (typeof dragTarget === "object") renderQueue(); // refresh clip range display
     wasPlaying = false;
     dragTarget = null;
+    timeline.style.cursor = "crosshair";
   });
 
-  // Hover cursor: ew-resize near markers, crosshair otherwise
+  // Hover cursor: grab near markers, crosshair otherwise
   timeline.addEventListener("mousemove", (e) => {
     if (dragTarget) return;
-    timeline.style.cursor = hitMarker(e.clientX) ? "ew-resize" : "crosshair";
+    timeline.style.cursor = hitMarker(e.clientX) ? "grab" : "crosshair";
   });
   timeline.addEventListener("mouseleave", () => { timeline.style.cursor = "crosshair"; });
 
@@ -1251,7 +1255,7 @@
     outPoint              = newEnd;
     inTimeInput.value     = fmtTime(newStart);
     outTimeInput.value    = fmtTime(newEnd);
-    addQueueBtn.textContent = item.draft ? `Stage Draft ${_draggedQueueIdx + 1}` : `Update Clip ${_draggedQueueIdx + 1}`;
+    addQueueBtn.innerHTML = item.draft ? `<i class="ph-duotone ph-pencil-simple"></i> Stage Draft ${_draggedQueueIdx + 1}` : `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${_draggedQueueIdx + 1}`;
     updateRangeDisplay();
     // Seek to drop position if it's the active file
     if (item.file_id === currentFileId) player.currentTime = newStart;
@@ -1275,7 +1279,7 @@
           inTimeInput.value = fmtTime(inPoint);
           outTimeInput.value = fmtTime(outPoint);
           outFilenameInput.value = item.filename;
-          addQueueBtn.textContent = `Update Clip ${hit.qi + 1}`;
+          addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${hit.qi + 1}`;
           updateRangeDisplay();
           renderQueue();
         }
@@ -1335,7 +1339,7 @@
     const data = await res.json();
     if (data.authenticated) {
       authLabel.textContent = "Connected to Drive";
-      authBtn.textContent = "Disconnect";
+      authBtn.innerHTML = '<i class="ph-duotone ph-sign-out"></i> Disconnect';
       authBtn.classList.remove("hidden");
       authBtn.onclick = async () => {
         await fetch("/auth/logout");
@@ -1346,7 +1350,7 @@
       };
     } else {
       authLabel.textContent = "Not connected";
-      authBtn.textContent = "Connect Google Drive";
+      authBtn.innerHTML = '<i class="ph-duotone ph-google-logo"></i> Connect Google Drive';
       authBtn.classList.remove("hidden");
       authBtn.onclick = () => { window.location.href = "/auth/login"; };
     }
@@ -1722,7 +1726,7 @@
           if (pidx !== -1) {
             clipQueue[pidx] = { ...clipQueue[pidx], file_id: currentFileId, end: player.duration, filename: defaultClipName(currentOrigName, 1), loading: false };
             selectedQueueIdx = pidx;
-            addQueueBtn.textContent = `Update Clip ${pidx + 1}`;
+            addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${pidx + 1}`;
           }
           outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
           renderQueue();
@@ -1902,7 +1906,7 @@
       const rangeText = item.error ? `\u2717 ${item.error}` : item.loading ? "\u23F3 downloading\u2026" : (fmtTime(item.start) + " \u2192 " + fmtTime(item.end));
       const statusTitle = item.error ? item.error : item.loading ? "Downloading from Drive" : item.draft ? "Draft \u2013 not queued for upload" : (isActive ? "In player" : "Ready on server");
       const stageBtn = item.draft && !item.loading && !item.error
-        ? `<button class="queue-item-stage" data-idx="${idx}" title="Add to upload queue">+ Queue</button>`
+        ? `<button class="queue-item-stage" data-idx="${idx}" title="Add to upload queue"><i class="ph-duotone ph-check"></i></button>`
         : `<span></span>`;
       const srcName = fileOrigNames.get(item.file_id) || "";
       const srcSubtitle = srcName ? `<span class="queue-item-source" title="${srcName}">${srcName}</span>` : "";
@@ -1912,7 +1916,7 @@
         <span class="queue-item-status ${statusClass}" title="${statusTitle}">${statusBadge}</span>
         ${stageBtn}
         <button class="queue-item-load" data-idx="${idx}" title="Load into editor" ${editDisabled ? "disabled" : ""}>${editLabel}</button>
-        <button class="queue-item-remove" data-idx="${idx}" title="Remove">&times;</button>
+        <button class="queue-item-remove" data-idx="${idx}" title="Remove"><i class="ph-duotone ph-x"></i></button>
       `;
       queueList.appendChild(li);
     });
@@ -1954,7 +1958,7 @@
         if (selectedQueueIdx === i) {
           // clicking the active clip's Load button deselects it
           selectedQueueIdx = null;
-          addQueueBtn.textContent = "+ Add to Queue";
+          addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
           drawTimeline();
           renderQueue();
         } else {
@@ -1967,7 +1971,7 @@
         const i = parseInt(btn.dataset.idx);
         if (selectedQueueIdx === i) {
           selectedQueueIdx = null;
-          addQueueBtn.textContent = "+ Add to Queue";
+          addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
         } else if (selectedQueueIdx !== null && i < selectedQueueIdx) {
           selectedQueueIdx--;
         }
@@ -2018,7 +2022,7 @@
     player.currentTime = inPoint;
     updateRangeDisplay();
     drawTimeline();
-    addQueueBtn.textContent = item.draft ? `Stage Draft ${idx + 1}` : `Update Clip ${idx + 1}`;
+    addQueueBtn.innerHTML = item.draft ? `<i class="ph-duotone ph-pencil-simple"></i> Stage Draft ${idx + 1}` : `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${idx + 1}`;
     renderQueue();
     // Scroll the timeline into view so user can see the markers change
     timeline.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2051,10 +2055,10 @@
         inTimeInput.value  = fmtTime(inPoint);
         outTimeInput.value = fmtTime(outPoint);
         outFilenameInput.value = next.filename;
-        addQueueBtn.textContent = next.draft ? `Stage Draft ${nextIdx + 1}` : `Update Clip ${nextIdx + 1}`;
+        addQueueBtn.innerHTML = next.draft ? `<i class="ph-duotone ph-pencil-simple"></i> Stage Draft ${nextIdx + 1}` : `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${nextIdx + 1}`;
       } else {
         selectedQueueIdx = null;
-        addQueueBtn.textContent = "+ Add to Queue";
+        addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
         outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
       }
     } else {
@@ -2106,7 +2110,7 @@
       inTimeInput.value  = fmtTime(inPoint);
       outTimeInput.value = fmtTime(outPoint);
       outFilenameInput.value = clipA.filename;
-      addQueueBtn.textContent = `Update Clip ${splitIdx + 1}`;
+      addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${splitIdx + 1}`;
       updateRangeDisplay(); drawTimeline(); renderQueue();
       logAppend("INFO", `Split at ${fmtTime(t)}: "${clipA.filename}" + "${clipB.filename}"`);
       return;
@@ -2128,7 +2132,7 @@
       inTimeInput.value  = fmtTime(inPoint);
       outTimeInput.value = fmtTime(outPoint);
       outFilenameInput.value = clipA.filename;
-      addQueueBtn.textContent = `Update Clip ${selectedQueueIdx + 1}`;
+      addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${selectedQueueIdx + 1}`;
       updateRangeDisplay(); drawTimeline(); renderQueue();
       logAppend("INFO", `Split in→out at ${fmtTime(t)}: "${clipA.filename}" + "${clipB.filename}"`);
       return;
@@ -2145,7 +2149,7 @@
   clearQueueBtn.addEventListener("click", () => {
     clipQueue = [];
     selectedQueueIdx = null;
-    addQueueBtn.textContent = "+ Add to Queue";
+    addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
     renderQueue();
     drawTimeline();
     hide(queueProgress);
@@ -2206,7 +2210,7 @@
         queueLabel.textContent = `\u2713 All ${total} clip${total !== 1 ? "s" : ""} uploaded!`;
         clipQueue = [];
         selectedQueueIdx = null;
-        addQueueBtn.textContent = "+ Add to Queue";
+        addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
         renderQueue(); // clear queue list — stale disabled items would block further editing
         logAppend("INFO", `Queue upload complete: ${total} clip${total !== 1 ? "s" : ""} uploaded.`);
       } else {
@@ -2272,7 +2276,7 @@
     inTimeInput.value = "";
     outTimeInput.value = "";
     outFilenameInput.value = "";
-    addQueueBtn.textContent = "+ Add to Queue";
+    addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
     clearError(loadError);
     clearError(trimError);
     clipQueue = [];

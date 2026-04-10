@@ -31,7 +31,7 @@
                 autocomplete="off"
                 spellcheck="false"
               />
-              <button id="browse-btn">Browse</button>
+              <button id="browse-btn"><i class="ph-duotone ph-folder-open"></i> Browse</button>
             </div>
             <div id="folder-error" class="error hidden"></div>
 
@@ -43,8 +43,8 @@
                     <input type="checkbox" id="select-all-cb" />
                     All
                   </label>
-                  <button id="load-selected-btn" class="small hidden">Load Selected (0)</button>
-                  <button id="refresh-btn" class="secondary small">Refresh</button>
+                  <button id="load-selected-btn" class="small hidden"><i class="ph-duotone ph-check-circle"></i> Load Selected (0)</button>
+                  <button id="refresh-btn" class="secondary small" title="Refresh file list"><i class="ph-duotone ph-arrow-clockwise"></i></button>
                 </div>
               </div>
               <ul id="file-list"></ul>
@@ -62,7 +62,7 @@
               autocomplete="off"
               spellcheck="false"
             />
-            <button id="load-btn">Load</button>
+            <button id="load-btn"><i class="ph-duotone ph-cloud-arrow-down"></i> Load</button>
           </div>
           <div id="load-error" class="error hidden"></div>
 
@@ -109,8 +109,8 @@
                 <div class="queue-header">
                   <span id="queue-count">0 clips queued</span>
                   <div class="queue-header-btns">
-                    <button id="clear-queue-btn" class="secondary small">Clear all</button>
-                    <button id="upload-queue-btn" class="small">Upload Queue</button>
+                    <button id="clear-queue-btn" class="secondary small" title="Clear all clips"><i class="ph-duotone ph-trash"></i> Clear all</button>
+                    <button id="upload-queue-btn" class="small"><i class="ph-duotone ph-upload-simple"></i> Upload Queue</button>
                   </div>
                 </div>
                 <ul id="queue-list"></ul>
@@ -147,12 +147,12 @@
 
               <!-- Custom controls bar -->
               <div class="player-controls">
-                <button id="frame-back-btn" class="ctrl-btn ctrl-secondary" title="Step back 20 frames">&#x23EE;</button>
-                <button id="play-pause-btn" class="ctrl-btn" title="Play / Pause">&#9654;</button>
-                <button id="frame-fwd-btn" class="ctrl-btn ctrl-secondary" title="Step forward 20 frames">&#x23ED;</button>
-                <button id="mute-btn" class="ctrl-btn" title="Mute / Unmute">&#128266;</button>
-                <button id="gear-btn" class="ctrl-btn ctrl-secondary" title="Configure hotkeys">&#9881;</button>
-                <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">&#x26F6;</button>
+                <button id="frame-back-btn" class="ctrl-btn ctrl-secondary" title="Step back 20 frames"><i class="ph-duotone ph-skip-back"></i></button>
+                <button id="play-pause-btn" class="ctrl-btn" title="Play / Pause"><i class="ph-duotone ph-play"></i></button>
+                <button id="frame-fwd-btn" class="ctrl-btn ctrl-secondary" title="Step forward 20 frames"><i class="ph-duotone ph-skip-forward"></i></button>
+                <button id="mute-btn" class="ctrl-btn" title="Mute / Unmute"><i class="ph-duotone ph-speaker-high"></i></button>
+                <button id="gear-btn" class="ctrl-btn ctrl-secondary" title="Configure hotkeys"><i class="ph-duotone ph-gear"></i></button>
+                <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen"><i class="ph-duotone ph-arrows-out"></i></button>
               </div>
 
               <!-- Hotkeys panel (expandable) -->
@@ -166,8 +166,8 @@
           <!-- Timeline (full width) -->
           <div class="timeline-wrap">
             <div class="tl-header">
-              <button id="tl-zoom-out" class="tl-zoom-btn" title="Zoom out">&#8722;</button>
-              <button id="tl-zoom-in"  class="tl-zoom-btn" title="Zoom in">&#43;</button>
+              <button id="tl-zoom-out" class="tl-zoom-btn" title="Zoom out"><i class="ph-duotone ph-magnifying-glass-minus"></i></button>
+              <button id="tl-zoom-in"  class="tl-zoom-btn" title="Zoom in"><i class="ph-duotone ph-magnifying-glass-plus"></i></button>
             </div>
             <canvas id="timeline" height="50"></canvas>
             <canvas id="waveform" height="24"></canvas>
@@ -185,12 +185,12 @@
               <div class="trim-point">
                 <label>In point</label>
                 <input type="text" id="in-time" placeholder="0:00.000" />
-                <button id="set-in-btn">Set to current</button>
+                <button id="set-in-btn" title="Set In to current time"><i class="ph-duotone ph-bracket-square-left"></i></button>
               </div>
               <div class="trim-point">
                 <label>Out point</label>
                 <input type="text" id="out-time" placeholder="0:00.000" />
-                <button id="set-out-btn">Set to current</button>
+                <button id="set-out-btn" title="Set Out to current time"><i class="ph-duotone ph-bracket-square-right"></i></button>
               </div>
             </div>
 
@@ -211,16 +211,16 @@
             <div id="trim-error" class="error hidden"></div>
 
             <div class="action-row">
-              <button id="split-btn" class="secondary" title="Split queued clip at playhead (S)">Split at Playhead</button>
-              <button id="add-queue-btn" class="secondary">+ Add to Queue</button>
-              <button id="trim-btn">Trim &amp; Upload Now</button>
+              <button id="split-btn" class="secondary" title="Split queued clip at playhead (S)"><i class="ph-duotone ph-scissors"></i> Split</button>
+              <button id="add-queue-btn" class="secondary"><i class="ph-duotone ph-plus-circle"></i> Add to Queue</button>
+              <button id="trim-btn"><i class="ph-duotone ph-upload-simple"></i> Trim &amp; Upload Now</button>
             </div>
           </div>
 
           <div class="bottom-row">
-            <button id="reset-btn" class="secondary">Reset &amp; Clear All</button>
-            <button id="add-clip-btn" class="secondary">+ Load Another Clip</button>
-            <button id="reload-btn" class="secondary">Reload clip</button>
+            <button id="reset-btn" class="secondary"><i class="ph-duotone ph-arrow-counter-clockwise"></i> Reset &amp; Clear All</button>
+            <button id="add-clip-btn" class="secondary"><i class="ph-duotone ph-folder-open"></i> Load Another Clip</button>
+            <button id="reload-btn" class="secondary" title="Reload clip"><i class="ph-duotone ph-arrow-clockwise"></i></button>
           </div>
         </div>
       </section>
@@ -234,14 +234,15 @@
       <span id="log-title">&#9656; Event Log</span>
       <span id="log-badge" class="hidden">0</span>
       <div id="log-header-btns">
-        <button id="log-copy-btn" class="small secondary">Copy</button>
-        <button id="log-clear-btn" class="small secondary">Clear</button>
-        <button id="log-toggle-btn" class="small secondary">Show / Hide</button>
+        <button id="log-copy-btn" class="small secondary" title="Copy log"><i class="ph-duotone ph-copy"></i></button>
+        <button id="log-clear-btn" class="small secondary" title="Clear log"><i class="ph-duotone ph-eraser"></i></button>
+        <button id="log-toggle-btn" class="small secondary" title="Show / Hide"><i class="ph-duotone ph-caret-down"></i></button>
       </div>
     </div>
     <ul id="log-list"></ul>
   </div>
 
+  <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
   <script src="/webcodecs-reverse.js"></script>
   <script src="/app.js"></script>
 </body>

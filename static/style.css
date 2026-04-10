@@ -69,6 +69,19 @@ header h1 {
   padding: 2.5rem 1.5rem;
 }
 
+/* ── Phosphor icon base ──────────────────────────────────────────────── */
+i.ph-duotone,
+i.ph-bold,
+i.ph {
+  font-size: 1.05em;
+  line-height: 1;
+  vertical-align: -0.13em;
+  pointer-events: none; /* icons must not intercept clicks */
+}
+
+/* Icon + text buttons: small gap between icon and label */
+button > i:first-child:not(:last-child) { margin-right: 0.3em; }
+
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 button {
   cursor: pointer;
@@ -318,6 +331,9 @@ button.small {
   cursor: crosshair;
 }
 
+/* Cursor while dragging a marker — set via JS but declared here for reference:
+   timeline.style.cursor = 'grab' on hover, 'grabbing' on mousedown */
+
 #waveform {
   display: block;
   width: 100%;
@@ -522,6 +538,7 @@ button.small {
   background: #000;
   display: block;
   max-height: 65vh;
+  cursor: pointer;
 }
 
 /* WebCodecs scrub canvas — overlays the video during reverse scrub */
@@ -691,7 +708,9 @@ button.small {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.84rem;
+  cursor: grab;
 }
+.queue-item:active { cursor: grabbing; }
 .queue-item:last-child { border-bottom: none; }
 .queue-item:hover { background: rgba(255,255,255,0.02); }
 
