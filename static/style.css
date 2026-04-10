@@ -27,7 +27,7 @@ body {
 #app {
   max-width: min(1600px, 97vw);
   margin: 0 auto;
-  padding: 0.5rem 1rem 2.5rem;
+  padding: 0.5rem 1rem 0.5rem;
   width: 100%;
   flex: 1;
   min-height: 0;
@@ -84,8 +84,7 @@ header h1 {
 .editor-card {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   padding: 0.75rem;
@@ -100,7 +99,14 @@ header h1 {
 }
 
 /* ── Two views inside the editor card ─────────────────────────────────── */
-#editor-view,
+#editor-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 #queue-view {
   display: flex;
   flex-direction: column;
@@ -108,11 +114,42 @@ header h1 {
   flex-shrink: 0;
 }
 
+/* ── 3-column editor layout ───────────────────────────────────────────── */
+.editor-columns {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+/* Left + right sidebars */
+.editor-left,
+.editor-right {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Center column holds video + timeline, fills remaining space */
+.editor-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
 /* ── Video player ──────────────────────────────────────────────────────── */
 .player-col {
-  flex: 0 0 auto;
-  height: 45vh;
-  min-height: 200px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -151,24 +188,20 @@ header h1 {
   color: var(--muted);
 }
 
-/* ── Trim panel (full width) ───────────────────────────────────────────── */
+/* ── Trim panel (in left sidebar) ─────────────────────────────────────── */
 .trim-panel { flex-shrink: 0; }
 
-/* ── Action row: Split | Add to Queue | Export ▾ ──────────────────────── */
+/* ── Action buttons (in right sidebar) ───────────────────────────────── */
 .editor-actions {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.4rem;
   flex-shrink: 0;
 }
-.editor-actions #add-queue-btn { flex: 1; }
-.editor-actions #export-drop-btn { flex-shrink: 0; }
+.editor-actions button.full-width { width: 100%; }
 
-/* ── Export dropdown panel ────────────────────────────────────────────── */
+/* ── Export panel (always visible in right sidebar) ──────────────────── */
 #export-drop-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -176,6 +209,8 @@ header h1 {
 }
 #export-drop-panel .rename-row  { margin-bottom: 0; }
 #export-drop-panel .group-tag-row { margin-bottom: 0; }
+#export-drop-panel .out-folder-row { margin-bottom: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+#export-drop-panel .out-folder-row input { width: 100%; font-size: 0.78rem; }
 #export-drop-panel #trim-btn.full-width { width: 100%; }
 
 /* ── Queue view ────────────────────────────────────────────────────────── */
@@ -195,21 +230,17 @@ header h1 {
 /* ── In → Out horizontal pair ─────────────────────────────────────────── */
 .inout-row {
   display: flex;
-  align-items: flex-end;
-  gap: 0.6rem;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
 .io-pair {
-  flex: 1;
   display: flex;
   flex-direction: column;
 }
 
 .io-sep {
-  font-size: 1rem;
-  color: var(--muted);
-  padding-bottom: 0.4rem;
-  flex-shrink: 0;
+  display: none; /* not needed in stacked layout */
 }
 
 /* Inline in-point / out-point row: [input] [btn] */
@@ -518,8 +549,6 @@ button.small {
 }
 .tl-zoom-btn:hover  { background: rgba(79,142,247,0.25); border-color: rgba(79,142,247,0.5); }
 .tl-zoom-btn:active { background: rgba(79,142,247,0.4); }
-.tl-snap-btn { margin-right: auto; }
-.tl-snap-active { background: rgba(79,142,247,0.3) !important; border-color: rgba(79,142,247,0.65) !important; color: #4f8ef7 !important; }
 
 #timeline {
   display: block;

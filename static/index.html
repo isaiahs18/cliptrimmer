@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clip Trimmer</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=3" />
 </head>
 <body>
   <div id="app">
@@ -104,103 +104,121 @@
           <!-- ═══════════════════════ VIEW 1 — EDITOR ═══════════════════════ -->
           <div id="editor-view">
 
-            <!-- Video — full width -->
-            <div class="player-col">
-              <div class="player-wrap">
-                <video id="player" preload="metadata">
-                  Your browser does not support HTML5 video.
-                </video>
-                <canvas id="scrub-canvas"></canvas>
-              </div>
-              <div class="player-controls">
-                <button id="frame-back-btn" class="ctrl-btn ctrl-secondary" title="Step back 20 frames"><i class="ph-duotone ph-skip-back"></i></button>
-                <button id="play-pause-btn" class="ctrl-btn" title="Play / Pause"><i class="ph-duotone ph-play"></i></button>
-                <button id="frame-fwd-btn" class="ctrl-btn ctrl-secondary" title="Step forward 20 frames"><i class="ph-duotone ph-skip-forward"></i></button>
-                <button id="mute-btn" class="ctrl-btn" title="Mute / Unmute"><i class="ph-duotone ph-speaker-high"></i></button>
-                <button id="gear-btn" class="ctrl-btn ctrl-secondary" title="Configure hotkeys"><i class="ph-duotone ph-gear"></i></button>
-                <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen"><i class="ph-duotone ph-arrows-out"></i></button>
-              </div>
-              <div id="hotkeys-panel" class="hidden">
-                <div class="hotkeys-opts">
-                  <label><input type="checkbox" id="auto-queue-toggle"> Auto-add to queue on Out point</label>
-                </div>
-                <div class="hotkeys-grid"></div>
-              </div>
-            </div>
+            <!-- 3-column layout: left sidebar | video+timeline | right sidebar -->
+            <div class="editor-columns">
 
-            <!-- Trim panel — full width -->
-            <div class="panel-card trim-panel">
-              <div class="panel-title">Trim Points</div>
-              <div class="inout-row">
-                <div class="io-pair">
-                  <label>In</label>
-                  <div class="tp-row">
-                    <input type="text" id="in-time" placeholder="0:00.000" />
-                    <button id="set-in-btn" title="Set In to current time"><i class="ph-duotone ph-bracket-square-left"></i></button>
+              <!-- LEFT SIDEBAR: trim controls only -->
+              <div class="editor-left">
+                <div class="panel-card trim-panel">
+                  <div class="panel-title">Trim Points</div>
+                  <div class="inout-row">
+                    <div class="io-pair">
+                      <label>In</label>
+                      <div class="tp-row">
+                        <input type="text" id="in-time" placeholder="0:00.000" />
+                        <button id="set-in-btn" title="Set In to current time"><i class="ph-duotone ph-bracket-square-left"></i></button>
+                      </div>
+                    </div>
+                    <span class="io-sep">→</span>
+                    <div class="io-pair">
+                      <label>Out</label>
+                      <div class="tp-row">
+                        <input type="text" id="out-time" placeholder="0:00.000" />
+                        <button id="set-out-btn" title="Set Out to current time"><i class="ph-duotone ph-bracket-square-right"></i></button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="trim-range" id="trim-range-display"></div>
+                  <div class="speed-row">
+                    <span class="speed-label">Speed</span>
+                    <div class="speed-btns">
+                      <button class="speed-btn secondary small" data-speed="0.25">0.25×</button>
+                      <button class="speed-btn secondary small" data-speed="0.5">0.5×</button>
+                      <button class="speed-btn secondary small" data-speed="0.75">0.75×</button>
+                      <button class="speed-btn secondary small active" data-speed="1">1×</button>
+                      <button class="speed-btn secondary small" data-speed="1.5">1.5×</button>
+                      <button class="speed-btn secondary small" data-speed="2">2×</button>
+                    </div>
                   </div>
                 </div>
-                <span class="io-sep">→</span>
-                <div class="io-pair">
-                  <label>Out</label>
-                  <div class="tp-row">
-                    <input type="text" id="out-time" placeholder="0:00.000" />
-                    <button id="set-out-btn" title="Set Out to current time"><i class="ph-duotone ph-bracket-square-right"></i></button>
+              </div><!-- /.editor-left -->
+
+              <!-- CENTER: video + controls + timeline -->
+              <div class="editor-center">
+                <div class="player-col">
+                  <div class="player-wrap">
+                    <video id="player" preload="metadata">
+                      Your browser does not support HTML5 video.
+                    </video>
+                    <canvas id="scrub-canvas"></canvas>
+                  </div>
+                  <div class="player-controls">
+                    <button id="frame-back-btn" class="ctrl-btn ctrl-secondary" title="Step back 20 frames"><i class="ph-duotone ph-skip-back"></i></button>
+                    <button id="play-pause-btn" class="ctrl-btn" title="Play / Pause"><i class="ph-duotone ph-play"></i></button>
+                    <button id="frame-fwd-btn" class="ctrl-btn ctrl-secondary" title="Step forward 20 frames"><i class="ph-duotone ph-skip-forward"></i></button>
+                    <button id="mute-btn" class="ctrl-btn" title="Mute / Unmute"><i class="ph-duotone ph-speaker-high"></i></button>
+                    <button id="gear-btn" class="ctrl-btn ctrl-secondary" title="Configure hotkeys"><i class="ph-duotone ph-gear"></i></button>
+                    <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen"><i class="ph-duotone ph-arrows-out"></i></button>
+                  </div>
+                  <div id="hotkeys-panel" class="hidden">
+                    <div class="hotkeys-opts">
+                      <label><input type="checkbox" id="auto-queue-toggle"> Auto-add to queue on Out point</label>
+                    </div>
+                    <div class="hotkeys-grid"></div>
                   </div>
                 </div>
-              </div>
-              <div class="trim-range" id="trim-range-display"></div>
-              <div class="speed-row">
-                <span class="speed-label">Speed</span>
-                <div class="speed-btns">
-                  <button class="speed-btn secondary small" data-speed="0.25">0.25×</button>
-                  <button class="speed-btn secondary small" data-speed="0.5">0.5×</button>
-                  <button class="speed-btn secondary small" data-speed="0.75">0.75×</button>
-                  <button class="speed-btn secondary small active" data-speed="1">1×</button>
-                  <button class="speed-btn secondary small" data-speed="1.5">1.5×</button>
-                  <button class="speed-btn secondary small" data-speed="2">2×</button>
+
+                <!-- Timeline -->
+                <div class="timeline-wrap">
+                  <div class="tl-header">
+                    <button id="tl-zoom-out" class="tl-zoom-btn" title="Zoom out"><i class="ph-duotone ph-magnifying-glass-minus"></i></button>
+                    <button id="tl-zoom-in"  class="tl-zoom-btn" title="Zoom in"><i class="ph-duotone ph-magnifying-glass-plus"></i></button>
+                  </div>
+                  <canvas id="timeline" height="50"></canvas>
+                  <canvas id="waveform" height="24"></canvas>
+                  <div class="tl-scrollbar-row">
+                    <div id="tl-scrollbar" class="tl-scrollbar hidden">
+                      <div id="tl-scrollbar-thumb" class="tl-scrollbar-thumb"></div>
+                    </div>
+                    <span id="tl-zoom-label" class="tl-zoom-label"></span>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </div><!-- /.editor-center -->
 
-            <!-- Validation errors -->
-            <div id="trim-error" class="error hidden"></div>
+              <!-- RIGHT SIDEBAR: actions + export -->
+              <div class="editor-right">
+                <!-- Validation errors -->
+                <div id="trim-error" class="error hidden"></div>
 
-            <!-- Action row -->
-            <div class="editor-actions">
-              <button id="split-btn" class="secondary" title="Split queued clip at playhead (S)"><i class="ph-duotone ph-scissors"></i> Split</button>
-              <button id="add-queue-btn" class="secondary"><i class="ph-duotone ph-plus-circle"></i> Add to Queue</button>
-              <button id="export-drop-btn"><i class="ph-duotone ph-upload-simple"></i> Export <i class="ph-duotone ph-caret-down" style="font-size:0.7em"></i></button>
-            </div>
-
-            <!-- Export dropdown — revealed by Export button -->
-            <div id="export-drop-panel" class="hidden">
-              <div class="rename-row">
-                <label for="out-filename">Save as</label>
-                <input type="text" id="out-filename" placeholder="filename.mp4" />
-              </div>
-              <div class="group-tag-row">
-                <label for="group-tag">Group tag <span class="muted-hint">(e.g. "highlights"…)</span></label>
-                <input type="text" id="group-tag" placeholder="optional" autocomplete="off" spellcheck="false" />
-              </div>
-              <button id="trim-btn" class="full-width"><i class="ph-duotone ph-upload-simple"></i> Trim &amp; Upload</button>
-            </div>
-
-            <!-- Timeline -->
-            <div class="timeline-wrap">
-              <div class="tl-header">
-                <button id="tl-snap-btn" class="tl-zoom-btn tl-snap-btn" title="Snap to keyframes &amp; audio peaks" aria-pressed="false"><i class="ph-duotone ph-magnet"></i></button>
-                <button id="tl-zoom-out" class="tl-zoom-btn" title="Zoom out"><i class="ph-duotone ph-magnifying-glass-minus"></i></button>
-                <button id="tl-zoom-in"  class="tl-zoom-btn" title="Zoom in"><i class="ph-duotone ph-magnifying-glass-plus"></i></button>
-              </div>
-              <canvas id="timeline" height="50"></canvas>
-              <canvas id="waveform" height="24"></canvas>
-              <div class="tl-scrollbar-row">
-                <div id="tl-scrollbar" class="tl-scrollbar hidden">
-                  <div id="tl-scrollbar-thumb" class="tl-scrollbar-thumb"></div>
+                <!-- Action buttons -->
+                <div class="editor-actions">
+                  <button id="split-btn" class="secondary full-width" title="Split queued clip at playhead (S)"><i class="ph-duotone ph-scissors"></i> Split</button>
+                  <button id="add-queue-btn" class="secondary full-width"><i class="ph-duotone ph-plus-circle"></i> Add to Queue</button>
                 </div>
-                <span id="tl-zoom-label" class="tl-zoom-label"></span>
-              </div>
-            </div>
+
+                <!-- Export panel -->
+                <div id="export-drop-panel" class="panel-card">
+                  <div class="panel-title">Export</div>
+                  <div class="rename-row">
+                    <label for="out-filename">Save as</label>
+                    <input type="text" id="out-filename" placeholder="filename.mp4" />
+                  </div>
+                  <div class="group-tag-row">
+                    <label for="group-tag">Group tag <span class="muted-hint">(e.g. "highlights"…)</span></label>
+                    <input type="text" id="group-tag" placeholder="optional" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="out-folder-row">
+                    <label for="output-folder-editor">Output folder <span class="muted-hint">(Drive URL or ID)</span></label>
+                    <input type="text" id="output-folder-editor" placeholder="drive.google.com/drive/folders/…" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <button id="trim-btn" class="full-width"><i class="ph-duotone ph-upload-simple"></i> Trim &amp; Upload</button>
+                </div>
+              </div><!-- /.editor-right -->
+
+            </div><!-- /.editor-columns -->
+
+            <!-- hidden export drop btn kept for JS compat -->
+            <button id="export-drop-btn" class="hidden" aria-hidden="true"></button>
 
           </div><!-- /#editor-view -->
 

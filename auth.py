@@ -1,4 +1,8 @@
 import os
+import json
+import hashlib
+import base64
+import secrets
 from pathlib import Path
 from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
@@ -18,7 +22,7 @@ router = APIRouter()
 
 def _client_config():
     return {
-        "installed": {
+        "web": {
             "client_id": os.environ["GOOGLE_CLIENT_ID"],
             "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -26,6 +30,14 @@ def _client_config():
             "redirect_uris": [REDIRECT_URI],
         }
     }
+
+
+def _generate_pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(96)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    return verifier, challenge
 
 
 def get_credentials() -> Credentials | None:
@@ -52,12 +64,15 @@ def _make_flow(state: str | None = None) -> Flow:
 @router.get("/auth/login")
 def login():
     flow = _make_flow()
+    code_verifier, code_challenge = _generate_pkce_pair()
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        code_challenge=code_challenge,
+        code_challenge_method="S256",
     )
-    Path(".oauth_state").write_text(state)
+    Path(".oauth_state").write_text(json.dumps({"state": state, "verifier": code_verifier}))
     return RedirectResponse(auth_url)
 
 
@@ -80,12 +95,22 @@ def callback(request: FastAPIRequest, code: str | None = None, state: str | None
             status_code=400,
         )
 
-    saved_state = Path(".oauth_state").read_text().strip() if Path(".oauth_state").exists() else None
+    saved_data = None
+    if Path(".oauth_state").exists():
+        try:
+            saved_data = json.loads(Path(".oauth_state").read_text())
+        except (json.JSONDecodeError, ValueError):
+            saved_data = {"state": Path(".oauth_state").read_text().strip(), "verifier": None}
+    saved_state = saved_data.get("state") if saved_data else None
+    code_verifier = saved_data.get("verifier") if saved_data else None
     if saved_state != state:
         return JSONResponse({"error": "State mismatch — possible CSRF"}, status_code=400)
 
     flow = _make_flow(state=state)
-    flow.fetch_token(code=code)
+    fetch_kwargs = {"code": code}
+    if code_verifier:
+        fetch_kwargs["code_verifier"] = code_verifier
+    flow.fetch_token(**fetch_kwargs)
     creds = flow.credentials
     TOKEN_FILE.write_text(creds.to_json())
     Path(".oauth_state").unlink(missing_ok=True)

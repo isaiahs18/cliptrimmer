@@ -20,6 +20,39 @@
   let _tlDragOverTime  = null; // current timeline drop position (seconds) while dragging
   let _waveData        = null; // Float32Array of resampled mono samples for current file
   let _waveFileId      = null; // file_id the _waveData belongs to
+  let _wavePeakFracs   = [];   // normalized [0,1] positions of audio peaks for snap
+  let _waveNoAudio     = false; // true when audio decode failed for current file
+
+  // ── Undo/redo for in/out markers ────────────────────────────────────────────
+  const _undoStack = []; // [{inPoint, outPoint}, ...]
+  const _redoStack = [];
+  function _pushUndoMarker() {
+    _undoStack.push({ inPoint, outPoint });
+    if (_undoStack.length > 50) _undoStack.shift();
+    _redoStack.length = 0;
+  }
+  function undoMarker() {
+    if (!_undoStack.length) return;
+    _redoStack.push({ inPoint, outPoint });
+    const prev = _undoStack.pop();
+    inPoint  = prev.inPoint;
+    outPoint = prev.outPoint;
+    inTimeInput.value  = fmtTime(inPoint);
+    outTimeInput.value = fmtTime(outPoint);
+    updateRangeDisplay();
+    drawTimeline();
+  }
+  function redoMarker() {
+    if (!_redoStack.length) return;
+    _undoStack.push({ inPoint, outPoint });
+    const next = _redoStack.pop();
+    inPoint  = next.inPoint;
+    outPoint = next.outPoint;
+    inTimeInput.value  = fmtTime(inPoint);
+    outTimeInput.value = fmtTime(outPoint);
+    updateRangeDisplay();
+    drawTimeline();
+  }
 
   // ── JKL shuttle state ───────────────────────────────────────────────────────
   let _jklSpeed      = 0;    // 0 = paused, positive = forward playbackRate
@@ -102,8 +135,9 @@
   const queueProgress    = document.getElementById("queue-progress");
   const queueFill        = document.getElementById("queue-fill");
   const queueLabel       = document.getElementById("queue-label");
-  const outputFolderInput = document.getElementById("output-folder-url");
-  const groupTagInput     = document.getElementById("group-tag");
+  const outputFolderInput  = document.getElementById("output-folder-url");
+  const outputFolderEditor = document.getElementById("output-folder-editor");
+  const groupTagInput      = document.getElementById("group-tag");
   const reloadBtn         = document.getElementById("reload-btn");
   const frameBackBtn      = document.getElementById("frame-back-btn");
   const frameFwdBtn       = document.getElementById("frame-fwd-btn");
@@ -277,36 +311,33 @@
   let _decodeRecoveries = 0;    // consecutive DECODE recovery attempts (reset on successful play)
   function armStallTimer() {
     clearTimeout(_stallTimer);
-    if (_playerResetting || player.paused) return;
+    if (_playerResetting || player.paused || _jklScrubbing) return;
     _stallTimer = setTimeout(() => {
       if (_playerResetting || player.paused || !currentFileId) return;
-      if (player.readyState < 3) { // HAVE_FUTURE_DATA — still buffering
-        logAppend("WARN", `Stall timeout — reloading stream at ${player.currentTime.toFixed(2)}s`);
-        showWarnToast("\u23F3 Buffering stalled — reloading\u2026");
-        const resumeAt = player.currentTime;
-        _playerResetting = true;
-        // Safety: if canplay/seeked never fires (server truly stuck), clear the flag
-        // after 10 s and re-arm so we can try again instead of freezing forever.
-        let _stallCanplayFn = null;
-        const _stallSafety = setTimeout(() => {
-          if (_stallCanplayFn) player.removeEventListener("canplay", _stallCanplayFn);
+      // Fire for any readyState — readyState=4 can still stall when the network stream drops
+      logAppend("WARN", `Stall timeout — reloading stream at ${player.currentTime.toFixed(2)}s (readyState=${player.readyState})`);
+      showWarnToast("\u23F3 Buffering stalled — reloading\u2026");
+      const resumeAt = player.currentTime;
+      _playerResetting = true;
+      let _stallCanplayFn = null;
+      const _stallSafety = setTimeout(() => {
+        if (_stallCanplayFn) player.removeEventListener("canplay", _stallCanplayFn);
+        _playerResetting = false;
+        logAppend("WARN", "Stall reload timed out — retrying");
+        armStallTimer();
+      }, 10000);
+      player.removeAttribute("src");
+      player.load();
+      player.src = `/api/video/${currentFileId}`;
+      _stallCanplayFn = () => {
+        player.currentTime = resumeAt;
+        player.addEventListener("seeked", () => {
+          clearTimeout(_stallSafety);
           _playerResetting = false;
-          logAppend("WARN", "Stall reload timed out — retrying");
-          armStallTimer();
-        }, 10000);
-        player.removeAttribute("src");
-        player.load();
-        player.src = `/api/video/${currentFileId}`;
-        _stallCanplayFn = () => {
-          player.currentTime = resumeAt;
-          player.addEventListener("seeked", () => {
-            clearTimeout(_stallSafety);
-            _playerResetting = false;
-            player.play().catch(() => {});
-          }, { once: true });
-        };
-        player.addEventListener("canplay", _stallCanplayFn, { once: true });
-      }
+          player.play().catch(() => {});
+        }, { once: true });
+      };
+      player.addEventListener("canplay", _stallCanplayFn, { once: true });
     }, 5000);
   }
 
@@ -317,6 +348,7 @@
   player.addEventListener("playing", () => { clearTimeout(_stallTimer); });
   player.addEventListener("stalled", () => {
     if (_playerResetting) return;
+    if (_jklScrubbing) return; // seeks during J-hold scrub routinely trigger stalled — ignore
     logAppend("WARN", `Video stalled at ${player.currentTime.toFixed(2)}s (readyState=${player.readyState})`);
     armStallTimer();
   });
@@ -327,11 +359,17 @@
     const code = player.error?.code;
     const codeNames = { 1:"ABORTED", 2:"NETWORK", 3:"DECODE", 4:"SRC_NOT_SUPPORTED" };
 
-    // DECODE errors during seek-scrub are spurious (Chromium fails on non-keyframe seeks).
-    // Reload silently at the same position — don't skip forward, don't toast, don't cancel drag.
+    // DECODE errors during seek-scrub (timeline drag or J-hold backward scrub) are spurious.
+    // Chromium fails on non-keyframe seeks — just clear in-flight state and continue.
+    if (code === 3 && _jklScrubbing && currentFileId) {
+      // J-hold scrub: the next step will issue the following seek — nothing to do.
+      logAppend("WARN", `DECODE during J-scrub at ${player.currentTime.toFixed(2)}s — continuing`);
+      _jklScrubDone = true;
+      _jklScrubMaybeStep();
+      return;
+    }
     if (code === 3 && dragTarget === "seek" && currentFileId) {
-      // DECODE errors on non-keyframe seeks are normal in Chromium — don't reload.
-      // Just clear the in-flight flag and dispatch the next pending scrub position.
+      // Timeline scrub: clear the in-flight flag and dispatch any pending position.
       logAppend("WARN", `DECODE during scrub at ${player.currentTime.toFixed(2)}s — skipping to next position`);
       _isSeeking = false;
       if (_pendingScrubTime !== null) {
@@ -345,6 +383,30 @@
     dragTarget = null; // cancel any active timeline drag
     playPauseBtn.innerHTML = '<i class="ph-duotone ph-play"></i>';
     logAppend("ERROR", `Player error ${code} (${codeNames[code] || "?"}): ${player.error?.message || "unknown"}`);
+
+    // Auto-recover from NETWORK errors (code=2): stream dropped mid-playback (e.g. Drive timeout).
+    // Reload and resume from the same position.
+    if (code === 2 && currentFileId) {
+      const resumeAt = player.currentTime;
+      const wasPlaying = !player.paused;
+      logAppend("INFO", `NETWORK auto-recovery: reloading stream at ${resumeAt.toFixed(2)}s`);
+      showWarnToast("\u26A0\uFE0F Stream error — reconnecting\u2026");
+      _playerResetting = true;
+      const netSafety = setTimeout(() => { _playerResetting = false; }, 10000);
+      player.removeAttribute("src");
+      player.load();
+      player.src = `/api/video/${currentFileId}`;
+      player.addEventListener("canplay", () => {
+        player.currentTime = resumeAt;
+        player.addEventListener("seeked", () => {
+          clearTimeout(netSafety);
+          _playerResetting = false;
+          if (wasPlaying) player.play().catch(() => {});
+        }, { once: true });
+      }, { once: true });
+      return;
+    }
+
     // Auto-recover from DECODE errors: reload stream and skip 0.5s past the bad packet.
     // Cap at 3 consecutive attempts; if still failing, skip 2s forward and give up.
     if (code === 3 && currentFileId) {
@@ -1256,10 +1318,11 @@
     timeline.style.cursor = "crosshair";
   });
 
-  // Hover cursor: grab everywhere (grabbing on drag)
+  // Hover cursor: ew-resize near draggable markers, grab elsewhere
   timeline.addEventListener("mousemove", (e) => {
     if (dragTarget) return;
-    timeline.style.cursor = "grab";
+    const hit = hitMarker(e.clientX);
+    timeline.style.cursor = hit ? "ew-resize" : "grab";
   });
   timeline.addEventListener("mouseleave", () => { timeline.style.cursor = "crosshair"; });
 
@@ -1515,11 +1578,19 @@
     }
   }
 
-  // Persist output folder across sessions
-  const savedOutputFolder = localStorage.getItem(OUTPUT_FOLDER_KEY) || "https://drive.google.com/drive/folders/1EOuBel2ISjKYYGVrHP1SrGPeVLwxZzGd";
-  outputFolderInput.value = savedOutputFolder;
-  outputFolderInput.addEventListener("change", () => {
-    localStorage.setItem(OUTPUT_FOLDER_KEY, outputFolderInput.value.trim());
+  // Persist output folder across sessions; keep load-panel + editor-panel inputs in sync
+  const savedOutputFolder = localStorage.getItem(OUTPUT_FOLDER_KEY) || "";
+  outputFolderInput.value  = savedOutputFolder;
+  outputFolderEditor.value = savedOutputFolder;
+  outputFolderInput.addEventListener("input", () => {
+    const v = outputFolderInput.value.trim();
+    outputFolderEditor.value = v;
+    localStorage.setItem(OUTPUT_FOLDER_KEY, v);
+  });
+  outputFolderEditor.addEventListener("input", () => {
+    const v = outputFolderEditor.value.trim();
+    outputFolderInput.value = v;
+    localStorage.setItem(OUTPUT_FOLDER_KEY, v);
   });
 
   // Persist group tag, reset clip index when tag changes
@@ -1541,6 +1612,7 @@
   function showEditorView() {
     show(editorView);
     hide(queueView);
+    requestAnimationFrame(() => resizeTimeline());
   }
 
   function showQueueView() {
@@ -1550,10 +1622,8 @@
     renderQueue();
   }
 
-  // Export dropdown toggle
-  exportDropBtn.addEventListener("click", () => {
-    exportDropPanel.classList.toggle("hidden");
-  });
+  // Export panel is always visible in the right sidebar; btn is hidden but kept for compat
+  // exportDropBtn.addEventListener("click", () => { exportDropPanel.classList.toggle("hidden"); });
 
   backToEditorBtn.addEventListener("click", showEditorView);
 
@@ -1890,6 +1960,8 @@
 
       hide(spinnerPanel);
       show(editorPanel);
+      showEditorView();
+      exportDropPanel.classList.remove("hidden"); // show export panel ready to use
 
       player.addEventListener("loadedmetadata", () => {
         inPoint = 0;
@@ -1897,9 +1969,11 @@
         inTimeInput.value = fmtTime(inPoint);
         outTimeInput.value = fmtTime(outPoint);
         updateRangeDisplay();
-        resizeTimeline();
+        requestAnimationFrame(() => {
+          resizeTimeline();
+          decodeWaveform(currentFileId); // fire-and-forget waveform
+        });
         fetchKeyframes(currentFileId); // fire-and-forget keyframe overlay
-        decodeWaveform(currentFileId); // fire-and-forget waveform
         if (_batchMode) {
           // Find placeholder by Drive ID (driveFileId) then update it with the server file_id
           const pidx = driveFileId
@@ -2605,12 +2679,12 @@
       return;
     }
     // JKL fixed shortcuts — use e.code so they work regardless of CapsLock state
-    // Shift+J = set in point, Shift+L = set out point
-    if (e.shiftKey && e.code === "KeyJ") { e.preventDefault(); setInPoint(); return; }
-    if (e.shiftKey && e.code === "KeyL") { e.preventDefault(); setOutPoint(); return; }
-    // Alt+J = step back 1 frame, Alt+L = step forward 1 frame
-    if (e.altKey && e.code === "KeyJ") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
-    if (e.altKey && e.code === "KeyL") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
+    // Shift+J = step back 1 frame, Shift+L = step forward 1 frame
+    if (e.shiftKey && e.code === "KeyJ") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
+    if (e.shiftKey && e.code === "KeyL") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
+    // Alt+J = set in point, Alt+L = set out point
+    if (e.altKey && e.code === "KeyJ") { e.preventDefault(); setInPoint(); return; }
+    if (e.altKey && e.code === "KeyL") { e.preventDefault(); setOutPoint(); return; }
     // JKL shuttle (fixed, not remappable)
     if (!e.altKey && !e.shiftKey && (e.code === "KeyJ" || e.code === "KeyK" || e.code === "KeyL")) {
       e.preventDefault();
