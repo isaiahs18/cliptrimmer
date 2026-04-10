@@ -1,4 +1,5 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
 
 :root {
   --bg: #111316;
@@ -17,16 +18,30 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 #app {
-  max-width: min(1600px, 91.67vw);
+  max-width: min(1600px, 97vw);
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 0.5rem 1rem 2.5rem;
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────── */
@@ -34,13 +49,14 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 1.25rem;
+  padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 1.75rem;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
 }
 
 header h1 {
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   font-weight: 600;
   letter-spacing: -0.3px;
 }
@@ -62,6 +78,184 @@ header h1 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.5rem;
+}
+
+/* Editor card — allow scrolling when needed */
+.editor-card {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+}
+
+#editor-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Two views inside the editor card ─────────────────────────────────── */
+#editor-view,
+#queue-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── Video player ──────────────────────────────────────────────────────── */
+.player-col {
+  flex: 0 0 auto;
+  height: 45vh;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.player-col .player-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.player-col #player {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* ── Shared panel-card ─────────────────────────────────────────────────── */
+.panel-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.panel-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* ── Trim panel (full width) ───────────────────────────────────────────── */
+.trim-panel { flex-shrink: 0; }
+
+/* ── Action row: Split | Add to Queue | Export ▾ ──────────────────────── */
+.editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.editor-actions #add-queue-btn { flex: 1; }
+.editor-actions #export-drop-btn { flex-shrink: 0; }
+
+/* ── Export dropdown panel ────────────────────────────────────────────── */
+#export-drop-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+#export-drop-panel .rename-row  { margin-bottom: 0; }
+#export-drop-panel .group-tag-row { margin-bottom: 0; }
+#export-drop-panel #trim-btn.full-width { width: 100%; }
+
+/* ── Queue view ────────────────────────────────────────────────────────── */
+.queue-view-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.queue-view-title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* ── In → Out horizontal pair ─────────────────────────────────────────── */
+.inout-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.io-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.io-sep {
+  font-size: 1rem;
+  color: var(--muted);
+  padding-bottom: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* Inline in-point / out-point row: [input] [btn] */
+.tp-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.tp-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.45rem;
+}
+.tp-row button {
+  flex-shrink: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Trim range display */
+#trim-range-display {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+/* Speed row — compact inside panel-card */
+.panel-card .speed-row {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.panel-card .speed-btns {
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.panel-card .speed-btn {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.71rem;
+}
+
+.editor-card .filename {
+  font-size: 0.78rem;
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
 }
 
 .card.center {
@@ -261,7 +455,7 @@ button.small {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0;
 }
 
 .speed-label {
@@ -293,9 +487,10 @@ button.small {
   width: 100%;
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 1rem;
+  margin-bottom: 0.3rem;
   border: 1px solid var(--border);
   user-select: none;
+  flex-shrink: 0;
 }
 .tl-header {
   display: flex;
@@ -323,12 +518,14 @@ button.small {
 }
 .tl-zoom-btn:hover  { background: rgba(79,142,247,0.25); border-color: rgba(79,142,247,0.5); }
 .tl-zoom-btn:active { background: rgba(79,142,247,0.4); }
+.tl-snap-btn { margin-right: auto; }
+.tl-snap-active { background: rgba(79,142,247,0.3) !important; border-color: rgba(79,142,247,0.65) !important; color: #4f8ef7 !important; }
 
 #timeline {
   display: block;
   width: 100%;
   background: var(--bg);
-  cursor: crosshair;
+  cursor: grab;
 }
 
 /* Cursor while dragging a marker — set via JS but declared here for reference:
@@ -377,62 +574,22 @@ button.small {
   font-family: monospace;
 }
 
-/* ── Upper area (queue sidebar + video column) ───────────────────── */
-#upper-area {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0;
-  margin-bottom: 0.75rem;
-}
-
-#queue-sidebar {
-  width: 280px;
-  min-width: 140px;
-  max-width: 600px;
+/* ── Queue section (below timeline) ──────────────────────────────── */
+#queue-section {
   flex-shrink: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--border);
-  padding-right: 0.75rem;
-}
-
-#queue-sidebar #queue-section {
-  margin-top: 0;
-  border-top: none;
-  padding-top: 0;
-}
-
-#sidebar-resize-handle {
-  width: 6px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-  margin: 0 2px;
-  border-radius: 3px;
-  transition: background 0.15s;
-}
-#sidebar-resize-handle:hover,
-#sidebar-resize-handle.dragging {
-  background: rgba(79,142,247,0.4);
-}
-
-.editor-main {
-  flex: 1;
-  min-width: 200px;
-  padding-left: 0.75rem;
-}
-
-#trim-section {
   border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-  margin-top: 0.25rem;
+  padding-top: 0.4rem;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  max-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
 }
-
-.trim-meta-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
+#queue-section #queue-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: none;
 }
 
 /* ── Rename row ──────────────────────────────────────────────────────── */
@@ -537,7 +694,7 @@ button.small {
   border-radius: 6px;
   background: #000;
   display: block;
-  max-height: 65vh;
+  max-height: 65vh; /* overridden to 100% when inside .player-col */
   cursor: pointer;
 }
 
@@ -557,12 +714,13 @@ button.small {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.2rem 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
-  margin-top: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .ctrl-btn {
@@ -593,8 +751,11 @@ button.small {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.3rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  max-height: 200px;
 }
 
 #hotkeys-panel h4 {
@@ -604,6 +765,18 @@ button.small {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.hotkeys-opts {
+  margin-bottom: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.hotkeys-opts label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
 }
 
 .hotkeys-grid {
@@ -636,44 +809,12 @@ button.small {
   background: #0d0f12;
 }
 
-.trim-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+/* ── Queue section (old sidebar) styles — kept for queue-list item layout */
+#queue-section .queue-header {
+  flex-shrink: 0;
 }
 
-.trim-point {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-.trim-point input { font-family: monospace; }
-.trim-point button { width: fit-content; }
-
-.trim-range {
-  font-size: 0.78rem;
-  color: var(--muted);
-  font-family: monospace;
-  min-height: 1.2rem;
-  margin-bottom: 1rem;
-}
-
-.action-row {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-/* ── Queue ────────────────────────────────────────────────────────── */
-#queue-section {
-  margin-top: 1rem;
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
-}
+/* ── Queue item styles ──────────────────────────────────────────── */
 
 .queue-header {
   display: flex;
@@ -722,7 +863,19 @@ button.small {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  position: relative;
 }
+.queue-rename-icon {
+  display: none;
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+.queue-item:hover .queue-rename-icon { display: inline; }
 
 .queue-item-source {
   font-size: 0.68rem;
@@ -870,9 +1023,10 @@ button.small {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-start;
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 /* ── Misc ────────────────────────────────────────────────────────────── */

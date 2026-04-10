@@ -82,6 +82,12 @@
   const fullscreenBtn    = document.getElementById("fullscreen-btn");
   const gearBtn          = document.getElementById("gear-btn");
   const hotkeysPanel     = document.getElementById("hotkeys-panel");
+  const autoQueueToggle  = document.getElementById("auto-queue-toggle");
+  const editorView       = document.getElementById("editor-view");
+  const queueView        = document.getElementById("queue-view");
+  const exportDropBtn    = document.getElementById("export-drop-btn");
+  const exportDropPanel  = document.getElementById("export-drop-panel");
+  const backToEditorBtn  = document.getElementById("back-to-editor-btn");
   const bufferBarWrap    = document.getElementById("buffer-bar-wrap");
   const bufferFill       = document.getElementById("buffer-fill");
   const bufferLabel      = document.getElementById("buffer-label");
@@ -89,6 +95,7 @@
   const splitBtn         = document.getElementById("split-btn");
   const uploadQueueBtn   = document.getElementById("upload-queue-btn");
   const clearQueueBtn    = document.getElementById("clear-queue-btn");
+  const joinQueueBtn     = document.getElementById("join-queue-btn");
   const queueSection     = document.getElementById("queue-section");
   const queueList        = document.getElementById("queue-list");
   const queueCount       = document.getElementById("queue-count");
@@ -154,6 +161,13 @@
     return `${stem}_clip${String(index).padStart(2, "0")}${ext}`;
   }
 
+  // Returns the next sequential clip index based on actual queue contents,
+  // so deletions keep numbering tight (no gaps like _01, _03 after removing _02).
+  function nextClipIndex() {
+    if (!currentFileId) return 1;
+    return clipQueue.filter(c => !c.draft && !c.loading && !c.error && c.file_id === currentFileId).length + 1;
+  }
+
   // ── Error log ─────────────────────────────────────────────────────────────
 
   let _logErrorCount = 0;
@@ -192,14 +206,14 @@
   // ── Custom player controls ──────────────────────────────────────────────────
 
   const DEFAULT_HOTKEYS = {
-    playPause:  " ",
-    mute:       "m",
-    fullscreen: "f",
-    setIn:      "i",
-    setOut:     "o",
-    split:      "s",
-    seekBack:   "ArrowLeft",
-    seekFwd:    "ArrowRight",
+    playPause:  { key: " ",          ctrl: false, alt: false, shift: false },
+    mute:       { key: "m",          ctrl: false, alt: false, shift: false },
+    fullscreen: { key: "f",          ctrl: false, alt: false, shift: false },
+    setIn:      { key: "i",          ctrl: false, alt: false, shift: false },
+    setOut:     { key: "o",          ctrl: false, alt: false, shift: false },
+    split:      { key: "s",          ctrl: false, alt: false, shift: false },
+    seekBack:   { key: "ArrowLeft",  ctrl: false, alt: false, shift: false },
+    seekFwd:    { key: "ArrowRight", ctrl: false, alt: false, shift: false },
   };
   const HOTKEY_LABELS = {
     playPause:  "Play / Pause",
@@ -212,7 +226,17 @@
     seekFwd:    "Seek forward 5s",
   };
   const HOTKEYS_KEY = "cliptrimmer_hotkeys";
-  let hotkeys = { ...DEFAULT_HOTKEYS, ...JSON.parse(localStorage.getItem(HOTKEYS_KEY) || "{}") };
+  // Migrate old plain-string hotkeys to the new {key, ctrl, alt, shift} format
+  function _migrateHotkey(v) {
+    if (typeof v === "string") return { key: v, ctrl: false, alt: false, shift: false };
+    return v && typeof v === "object" && "key" in v ? v : null;
+  }
+  const _savedHK = JSON.parse(localStorage.getItem(HOTKEYS_KEY) || "{}");
+  const _migratedHK = {};
+  for (const [_hkk, _hkv] of Object.entries(_savedHK)) {
+    const m = _migrateHotkey(_hkv); if (m) _migratedHK[_hkk] = m;
+  }
+  let hotkeys = { ...DEFAULT_HOTKEYS, ..._migratedHK };
 
   function togglePlay() {
     if (player.paused) {
@@ -261,16 +285,27 @@
         showWarnToast("\u23F3 Buffering stalled — reloading\u2026");
         const resumeAt = player.currentTime;
         _playerResetting = true;
+        // Safety: if canplay/seeked never fires (server truly stuck), clear the flag
+        // after 10 s and re-arm so we can try again instead of freezing forever.
+        let _stallCanplayFn = null;
+        const _stallSafety = setTimeout(() => {
+          if (_stallCanplayFn) player.removeEventListener("canplay", _stallCanplayFn);
+          _playerResetting = false;
+          logAppend("WARN", "Stall reload timed out — retrying");
+          armStallTimer();
+        }, 10000);
         player.removeAttribute("src");
         player.load();
         player.src = `/api/video/${currentFileId}`;
-        player.addEventListener("canplay", () => {
+        _stallCanplayFn = () => {
           player.currentTime = resumeAt;
           player.addEventListener("seeked", () => {
+            clearTimeout(_stallSafety);
             _playerResetting = false;
             player.play().catch(() => {});
           }, { once: true });
-        }, { once: true });
+        };
+        player.addEventListener("canplay", _stallCanplayFn, { once: true });
       }
     }, 5000);
   }
@@ -369,7 +404,24 @@
     if (!hotkeysPanel.classList.contains("hidden")) renderHotkeysPanel();
   });
 
-  function displayKey(key) { return key === " " ? "Space" : key; }
+  function displayKey(hk) {
+    if (!hk) return "";
+    const parts = [];
+    if (hk.ctrl)  parts.push("Ctrl");
+    if (hk.alt)   parts.push("Alt");
+    if (hk.shift) parts.push("Shift");
+    parts.push(hk.key === " " ? "Space" : hk.key);
+    return parts.join("+");
+  }
+
+  // Returns true when a KeyboardEvent matches a stored hotkey combo exactly.
+  function hotkeyMatches(hk, e) {
+    if (!hk) return false;
+    return e.key === hk.key &&
+      !!e.ctrlKey  === !!hk.ctrl &&
+      !!e.altKey   === !!hk.alt  &&
+      !!e.shiftKey === !!hk.shift;
+  }
 
   function renderHotkeysPanel() {
     const grid = hotkeysPanel.querySelector(".hotkeys-grid");
@@ -386,8 +438,10 @@
       inp.value = displayKey(hotkeys[action]);
       inp.addEventListener("keydown", (e) => {
         e.preventDefault();
-        hotkeys[action] = e.key;
-        inp.value = displayKey(e.key);
+        // Ignore bare modifier key presses — wait for a real key
+        if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+        hotkeys[action] = { key: e.key, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey };
+        inp.value = displayKey(hotkeys[action]);
         localStorage.setItem(HOTKEYS_KEY, JSON.stringify(hotkeys));
         inp.blur();
       });
@@ -646,19 +700,42 @@
   // ── Timeline ───────────────────────────────────────────────────────────────
 
   function resizeTimeline() {
-    timeline.width = timeline.parentElement.clientWidth;
-    if (waveCanvas) waveCanvas.width = waveCanvas.parentElement.clientWidth;
+    const dpr = window.devicePixelRatio || 1;
+    const tlW = timeline.parentElement.clientWidth;
+    const tlH = 50;
+    timeline.width  = Math.round(tlW * dpr);
+    timeline.height = Math.round(tlH * dpr);
+    timeline.style.width  = tlW + "px";
+    timeline.style.height = tlH + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (waveCanvas) {
+      const wvH = 24;
+      waveCanvas.width  = Math.round(tlW * dpr);
+      waveCanvas.height = Math.round(wvH * dpr);
+      waveCanvas.style.width  = tlW + "px";
+      waveCanvas.style.height = wvH + "px";
+      waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
     drawTimeline();
     drawWaveform();
   }
 
   function drawWaveform() {
     if (!waveCtx || !waveCanvas || !waveCanvas.width) return;
-    const W = waveCanvas.width;
-    const H = waveCanvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const W = waveCanvas.width  / dpr;
+    const H = waveCanvas.height / dpr;
     waveCtx.clearRect(0, 0, W, H);
     waveCtx.fillStyle = "#0d1014";
     waveCtx.fillRect(0, 0, W, H);
+    if (_waveNoAudio) {
+      waveCtx.fillStyle = "rgba(139,143,168,0.5)";
+      waveCtx.font = `${Math.round(H * 0.45)}px sans-serif`;
+      waveCtx.textAlign = "left";
+      waveCtx.textBaseline = "middle";
+      waveCtx.fillText("no audio", 6, H / 2);
+      return;
+    }
     if (!_waveData || !player.duration) return;
     const dur = player.duration;
     const vd  = tlViewDur();
@@ -689,7 +766,9 @@
 
   async function decodeWaveform(fileId) {
     if (!waveCanvas) return;
-    _waveData = null;
+    _waveData      = null;
+    _wavePeakFracs = [];
+    _waveNoAudio   = false;
     drawWaveform();
     try {
       // HEAD first to get file size, then fetch from ~15% in to avoid
@@ -705,7 +784,7 @@
       const ac = new (window.AudioContext || window.webkitAudioContext)();
       let audioBuf;
       try { audioBuf = await ac.decodeAudioData(arrayBuf); }
-      catch (_) { ac.close(); return; }
+      catch (_) { ac.close(); if (fileId === currentFileId) { _waveNoAudio = true; drawWaveform(); } return; }
       ac.close();
       const raw = audioBuf.getChannelData(0);
       const target = 4000;
@@ -713,16 +792,18 @@
       const out = new Float32Array(target);
       for (let i = 0; i < target; i++) out[i] = raw[Math.min(raw.length - 1, i * step)];
       if (fileId === currentFileId) {
-        _waveData   = out;
-        _waveFileId = fileId;
+        _waveData      = out;
+        _waveFileId    = fileId;
+        _wavePeakFracs = _computeWavePeaks(out);
         drawWaveform();
       }
-    } catch (_) { /* silent — waveform is decorative */ }
+    } catch (_) { if (fileId === currentFileId) { _waveNoAudio = true; drawWaveform(); } }
   }
 
   function drawTimeline() {
-    const W   = timeline.width;
-    const H   = timeline.height;
+    const dpr = window.devicePixelRatio || 1;
+    const W   = timeline.width  / dpr;
+    const H   = timeline.height / dpr;
     const dur = player.duration || 1;
     const pos = player.currentTime || 0;
     const vd  = tlViewDur();
@@ -1015,7 +1096,7 @@
     const rect   = timeline.getBoundingClientRect();
     const px     = clientX - rect.left;
     const W      = rect.width;
-    const thresh = 10;
+    const thresh = 16;
     if (Math.abs(px - tlTimeToX(inPoint,  W)) <= thresh) return "in";
     if (Math.abs(px - tlTimeToX(outPoint, W)) <= thresh) return "out";
     for (let qi = 0; qi < clipQueue.length; qi++) {
@@ -1056,6 +1137,8 @@
     }
     const hit = hitMarker(e.clientX);
     if (hit) {
+      // Push undo before any marker drag begins
+      if (hit === "in" || hit === "out") _pushUndoMarker();
       dragTarget = hit;
       timeline.style.cursor = "grabbing";
       // When grabbing a clip edge, sync in/out to that clip so the editor stays aware
@@ -1074,6 +1157,7 @@
       }
     } else {
       dragTarget = "seek";
+      timeline.style.cursor = "grabbing";
       // Abandon any in-flight seek so this click always dispatches immediately
       _isSeeking = false;
       _pendingScrubTime = null;
@@ -1149,15 +1233,33 @@
       }
     }
     if (typeof dragTarget === "object") renderQueue(); // refresh clip range display
+    // Snap in/out markers to nearest keyframe on drag release
+    if (dragTarget === "in" || dragTarget === "out") {
+      if (dragTarget === "in") {
+        const snapped = _snapNearest(inPoint);
+        if (snapped !== inPoint) {
+          inPoint = snapped;
+          inTimeInput.value = fmtTime(inPoint);
+          updateRangeDisplay(); drawTimeline();
+        }
+      } else {
+        const snapped = _snapNearest(outPoint);
+        if (snapped !== outPoint) {
+          outPoint = snapped;
+          outTimeInput.value = fmtTime(outPoint);
+          updateRangeDisplay(); drawTimeline();
+        }
+      }
+    }
     wasPlaying = false;
     dragTarget = null;
     timeline.style.cursor = "crosshair";
   });
 
-  // Hover cursor: grab near markers, crosshair otherwise
+  // Hover cursor: grab everywhere (grabbing on drag)
   timeline.addEventListener("mousemove", (e) => {
     if (dragTarget) return;
-    timeline.style.cursor = hitMarker(e.clientX) ? "grab" : "crosshair";
+    timeline.style.cursor = "grab";
   });
   timeline.addEventListener("mouseleave", () => { timeline.style.cursor = "crosshair"; });
 
@@ -1181,6 +1283,62 @@
   const _zoomOutBtn = document.getElementById("tl-zoom-out");
   if (_zoomInBtn)  _zoomInBtn.addEventListener("click",  () => tlZoomStep(1.5));
   if (_zoomOutBtn) _zoomOutBtn.addEventListener("click", () => tlZoomStep(1 / 1.5));
+
+  // Snap-to-keyframe toggle
+  let _snapEnabled = false;
+  const _snapBtn = document.getElementById("tl-snap-btn");
+  if (_snapBtn) {
+    _snapBtn.addEventListener("click", () => {
+      _snapEnabled = !_snapEnabled;
+      _snapBtn.setAttribute("aria-pressed", String(_snapEnabled));
+      _snapBtn.classList.toggle("tl-snap-active", _snapEnabled);
+      _snapBtn.title = _snapEnabled ? "Snap to keyframes & audio peaks (ON)" : "Snap to keyframes & audio peaks (OFF)";
+    });
+  }
+  // Snap a time value to the nearest keyframe or waveform peak within 8 CSS px, or return t unchanged.
+  function _snapNearest(t) {
+    if (!_snapEnabled) return t;
+    const dur = player.duration || 0;
+    const W = timeline.getBoundingClientRect().width;
+    const snapThresh = (8 / W) * tlViewDur(); // 8 CSS px → seconds
+    let best = null, bestDist = Infinity;
+    for (const kf of keyframeTimes) {
+      const d = Math.abs(kf - t);
+      if (d < bestDist) { bestDist = d; best = kf; }
+    }
+    if (dur > 0) {
+      for (const frac of _wavePeakFracs) {
+        const kf = frac * dur;
+        const d = Math.abs(kf - t);
+        if (d < bestDist) { bestDist = d; best = kf; }
+      }
+    }
+    return (best !== null && bestDist <= snapThresh) ? best : t;
+  }
+
+  // Compute normalized [0,1] peak positions from a Float32Array of waveform samples.
+  // Returns at most ~200 peaks; used for snap-to-waveform-peak.
+  function _computeWavePeaks(samples) {
+    const n = samples.length;
+    let maxAmp = 0;
+    for (let i = 0; i < n; i++) {
+      const a = Math.abs(samples[i]);
+      if (a > maxAmp) maxAmp = a;
+    }
+    if (maxAmp < 0.01) return []; // silence / no meaningful audio
+    const thresh  = maxAmp * 0.3;  // ignore quiet passages
+    const minDist = Math.max(5, Math.floor(n / 200)); // max ~200 peaks, min 5-sample gap
+    const peaks   = [];
+    let lastPeak  = -minDist;
+    for (let i = 1; i < n - 1; i++) {
+      const a = Math.abs(samples[i]);
+      if (a >= thresh && a >= Math.abs(samples[i - 1]) && a >= Math.abs(samples[i + 1]) && i - lastPeak >= minDist) {
+        peaks.push(i / n);
+        lastPeak = i;
+      }
+    }
+    return peaks;
+  }
 
   // Scrollbar thumb drag to pan
   const _sbThumb = document.getElementById("tl-scrollbar-thumb");
@@ -1286,6 +1444,7 @@
       }
     } else {
       dragTarget = "seek";
+      timeline.style.cursor = "grabbing";
       wasPlaying = !player.paused;
       if (wasPlaying) player.pause();
       timelineSeek(touch.clientX);
@@ -1369,8 +1528,34 @@
   groupTagInput.addEventListener("input", () => {
     localStorage.setItem(GROUP_TAG_KEY, groupTagInput.value.trim());
     clipIndex = 1;
-    if (currentOrigName) outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
+    if (currentOrigName) outFilenameInput.value = defaultClipName(currentOrigName, nextClipIndex());
   });
+
+  // Persist auto-queue toggle
+  if (localStorage.getItem("cliptrimmer_autoqueue") === "1") autoQueueToggle.checked = true;
+  autoQueueToggle.addEventListener("change", () => {
+    localStorage.setItem("cliptrimmer_autoqueue", autoQueueToggle.checked ? "1" : "0");
+  });
+
+  // ── View switching ─────────────────────────────────────────────────────────
+  function showEditorView() {
+    show(editorView);
+    hide(queueView);
+  }
+
+  function showQueueView() {
+    hide(editorView);
+    show(queueView);
+    show(queueSection);   // always reveal the list when entering queue screen
+    renderQueue();
+  }
+
+  // Export dropdown toggle
+  exportDropBtn.addEventListener("click", () => {
+    exportDropPanel.classList.toggle("hidden");
+  });
+
+  backToEditorBtn.addEventListener("click", showEditorView);
 
   function getOutputFolderId() {
     const raw = outputFolderInput.value.trim();
@@ -1528,7 +1713,7 @@
     if (currentFileId) _loadedFileIds.add(currentFileId);
     clearError(loadError);
     hide(loadPanel);
-    spinnerLabel.textContent = `Downloading ${filename}…`;
+    spinnerLabel.textContent = `Loading ${filename} to timeline…`;
     show(spinnerPanel);
     await doLoad(`https://drive.google.com/file/d/${fileId}/view`, fileId);
   }
@@ -1541,14 +1726,11 @@
         try {
           const r = await fetch(`/api/load_progress/${fileId}`);
           const p = await r.json();
-          if (p.error) { clearInterval(iv); clearTimeout(to); reject(new Error(p.error)); return; }
-          if (p.done)  { clearInterval(iv); clearTimeout(to); resolve(); }
-        } catch (e) { clearInterval(iv); clearTimeout(to); reject(e); }
+          if (p.error) { clearInterval(iv); reject(new Error(p.error)); return; }
+          if (p.done)  { clearInterval(iv); resolve(); }
+        } catch (e) { clearInterval(iv); reject(e); }
       }, 500);
-      const to = setTimeout(() => {
-        clearInterval(iv);
-        reject(new Error("Background download timed out after 60s"));
-      }, 60_000);
+      // No hard timeout — let the server drive completion; a p.error will reject
     });
   }
 
@@ -1621,7 +1803,7 @@
     _playerResetting = false;
     videoFilename.textContent = currentOrigName || "";
     clipIndex = 1;
-    outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
+    outFilenameInput.value = defaultClipName(currentOrigName, nextClipIndex());
     fetchKeyframes(fileId);
     decodeWaveform(fileId);
     // Initialise WebCodecs reverse scrub for this file (non-blocking)
@@ -1647,7 +1829,7 @@
     }
     clearError(loadError);
     hide(loadPanel);
-    spinnerLabel.textContent = "Downloading…";
+    spinnerLabel.textContent = "Loading to timeline…";
     show(spinnerPanel);
     doLoad(url);
   });
@@ -1665,9 +1847,9 @@
           if (p.total_bytes > 0) {
             const pct = Math.round((p.bytes_done / p.total_bytes) * 100);
             bufferFill.style.width = `${pct}%`;
-            bufferLabel.textContent = `Downloading… ${pct}%  \u2014  ${fmtSize(p.bytes_done)} / ${fmtSize(p.total_bytes)}`;
+            bufferLabel.textContent = `Loading to timeline… ${pct}%  \u2014  ${fmtSize(p.bytes_done)} / ${fmtSize(p.total_bytes)}`;
           } else if (p.bytes_done > 0) {
-            bufferLabel.textContent = `Downloading… ${fmtSize(p.bytes_done)}`;
+            bufferLabel.textContent = `Loading to timeline… ${fmtSize(p.bytes_done)}`;
           }
           if (p.done) { clearInterval(iv); resolve(); }
         } catch (e) { clearInterval(iv); logAppend("ERROR", `Load progress poll failed: ${e.message}`); reject(e); }
@@ -1692,14 +1874,14 @@
       fileOrigNames.set(data.file_id, data.filename);
       clipIndex = 1;
       videoFilename.textContent = data.filename;
-      outFilenameInput.value = defaultClipName(data.filename, clipIndex);
+      outFilenameInput.value = defaultClipName(data.filename, nextClipIndex());
       resetSpeed();
 
       // Phase 1: Drive → server with progress bar
       bufferFill.style.width = "0%";
-      bufferLabel.textContent = `Downloading ${data.filename} from Drive…`;
+      bufferLabel.textContent = `Loading ${data.filename} to timeline…`;
       show(bufferBarWrap);
-      spinnerLabel.textContent = `Downloading ${data.filename}…`;
+      spinnerLabel.textContent = `Loading ${data.filename} to timeline…`;
       await pollLoadProgress(data.file_id);
 
       hide(bufferBarWrap);
@@ -1728,7 +1910,7 @@
             selectedQueueIdx = pidx;
             addQueueBtn.innerHTML = `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${pidx + 1}`;
           }
-          outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
+          outFilenameInput.value = defaultClipName(currentOrigName, nextClipIndex());
           renderQueue();
           logAppend("INFO", `Queued: ${currentOrigName} (${fmtTime(player.duration)})`);
         }
@@ -1760,6 +1942,7 @@
   // ── Trim point controls ───────────────────────────────────────────────────
 
   function setInPoint() {
+    _pushUndoMarker();
     const t = player.currentTime;
     inPoint = Math.min(t, outPoint - MIN_CLIP_GAP);
     inTimeInput.value = fmtTime(inPoint);
@@ -1768,11 +1951,15 @@
   }
 
   function setOutPoint() {
+    _pushUndoMarker();
     const t = player.currentTime;
     outPoint = Math.max(t, inPoint + MIN_CLIP_GAP);
     outTimeInput.value = fmtTime(outPoint);
     updateRangeDisplay();
     drawTimeline();
+    if (autoQueueToggle.checked && outPoint > inPoint && currentFileId) {
+      addQueueBtn.click();
+    }
   }
 
   setInBtn.addEventListener("click", setInPoint);
@@ -1903,15 +2090,15 @@
       } else {
         statusBadge = "\u25CB"; statusClass = "qi-onserver"; editLabel = idx === selectedQueueIdx ? "\u2713 editing" : "Edit"; editDisabled = false;
       }
-      const rangeText = item.error ? `\u2717 ${item.error}` : item.loading ? "\u23F3 downloading\u2026" : (fmtTime(item.start) + " \u2192 " + fmtTime(item.end));
-      const statusTitle = item.error ? item.error : item.loading ? "Downloading from Drive" : item.draft ? "Draft \u2013 not queued for upload" : (isActive ? "In player" : "Ready on server");
+      const rangeText = item.error ? `\u2717 ${item.error}` : item.loading ? "\u23F3 loading to timeline\u2026" : (fmtTime(item.start) + " \u2192 " + fmtTime(item.end));
+      const statusTitle = item.error ? item.error : item.loading ? "Loading to timeline" : item.draft ? "Draft \u2013 not queued for upload" : (isActive ? "In player" : "Ready on server");
       const stageBtn = item.draft && !item.loading && !item.error
         ? `<button class="queue-item-stage" data-idx="${idx}" title="Add to upload queue"><i class="ph-duotone ph-check"></i></button>`
         : `<span></span>`;
       const srcName = fileOrigNames.get(item.file_id) || "";
       const srcSubtitle = srcName ? `<span class="queue-item-source" title="${srcName}">${srcName}</span>` : "";
       li.innerHTML = `
-        <span class="queue-item-name" title="Click to rename" data-idx="${idx}" ${item.loading || item.error ? "" : 'style="cursor:text"'}>${item.filename}${srcSubtitle}</span>
+        <span class="queue-item-name" title="Click to rename" data-idx="${idx}" ${item.loading || item.error ? "" : 'style="cursor:text"'}>${item.filename}${srcSubtitle}<i class="ph-duotone ph-pencil-simple queue-rename-icon"></i></span>
         <span class="queue-item-range">${rangeText}</span>
         <span class="queue-item-status ${statusClass}" title="${statusTitle}">${statusBadge}</span>
         ${stageBtn}
@@ -2024,6 +2211,9 @@
     drawTimeline();
     addQueueBtn.innerHTML = item.draft ? `<i class="ph-duotone ph-pencil-simple"></i> Stage Draft ${idx + 1}` : `<i class="ph-duotone ph-pencil-simple"></i> Update Clip ${idx + 1}`;
     renderQueue();
+    // Switch to editor view and open export dropdown so user can edit filename
+    showEditorView();
+    exportDropPanel.classList.remove("hidden");
     // Scroll the timeline into view so user can see the markers change
     timeline.scrollIntoView({ behavior: "smooth", block: "center" });
   }
@@ -2032,7 +2222,7 @@
     clearError(trimError);
     if (outPoint <= inPoint) { showError(trimError, "Out point must be after in point."); return; }
     if (!currentFileId) { showError(trimError, "No file loaded."); return; }
-    const filename = outFilenameInput.value.trim() || defaultClipName(currentOrigName, clipIndex);
+    const filename = outFilenameInput.value.trim() || defaultClipName(currentOrigName, nextClipIndex());
 
     if (selectedQueueIdx !== null) {
       // Update existing queue item in place (or stage a draft)
@@ -2059,14 +2249,20 @@
       } else {
         selectedQueueIdx = null;
         addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
-        outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
+        outFilenameInput.value = defaultClipName(currentOrigName, nextClipIndex());
       }
     } else {
       const color = CLIP_COLORS[clipQueue.length % CLIP_COLORS.length];
       clipQueue.push({ start: inPoint, end: outPoint, filename, color, file_id: currentFileId });
       logAppend("INFO", `Clip ${clipQueue.length} added: ${fmtTime(inPoint)} → ${fmtTime(outPoint)} → "${filename}"`);
       clipIndex += 1;
-      outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
+      outFilenameInput.value = defaultClipName(currentOrigName, nextClipIndex());
+      // Navigate to queue screen so user sees the clip they just added
+      updateRangeDisplay();
+      drawTimeline();
+      renderQueue();
+      showQueueView();
+      return;
     }
 
     updateRangeDisplay();
@@ -2156,6 +2352,7 @@
   });
 
   uploadQueueBtn.addEventListener("click", () => runUploadQueue(false));
+  if (joinQueueBtn) joinQueueBtn.addEventListener("click", () => runJoinQueue());
 
   async function runUploadQueue(retryOnly) {
     if (clipQueue.length === 0) return;
@@ -2230,6 +2427,58 @@
     }
   }
 
+  async function runJoinQueue() {
+    const joinable = clipQueue.filter(item => !item.loading && !item.error && !item.draft);
+    if (joinable.length < 2) {
+      showError(trimError, "Need at least 2 clips in the queue to join.");
+      return;
+    }
+    if (!getOutputFolderId()) {
+      showError(trimError, "Set an output folder before joining.");
+      return;
+    }
+    const clips = joinable.map(item => ({
+      file_id: item.file_id || currentFileId,
+      start: item.start,
+      end: item.end,
+    }));
+    const baseName = joinable[0].filename.replace(/\.[^.]+$/, "") + "_joined";
+    const outExt   = joinable[0].filename.match(/\.[^.]+$/)?.[0] ?? ".mp4";
+
+    const confirmName = prompt("Output filename for joined clip:", baseName + outExt);
+    if (confirmName === null) return; // cancelled
+
+    const disabledBtns = [uploadQueueBtn, joinQueueBtn, clearQueueBtn, addQueueBtn, trimBtn, resetBtn];
+    disabledBtns.forEach(b => { if (b) b.disabled = true; });
+    const joinLabel = document.createElement("p");
+    joinLabel.textContent = "Joining clips\u2026";
+    show(queueProgress);
+    queueFill.style.width = "0%";
+    queueLabel.textContent = `Joining ${joinable.length} clips\u2026`;
+
+    try {
+      const res = await fetch("/api/concat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clips,
+          output_filename: confirmName.trim() || undefined,
+          output_folder_id: getOutputFolderId(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Concat failed");
+      queueFill.style.width = "100%";
+      queueLabel.innerHTML = `\u2713 Joined! <a href="${data.url}" target="_blank" rel="noopener">${data.filename}</a>`;
+      logAppend("INFO", `Join complete: ${data.filename} — ${data.url}`);
+    } catch (err) {
+      queueLabel.innerHTML = `<span style="color:var(--danger)">\u2717 ${err.message}</span>`;
+      logAppend("ERROR", `Join failed: ${err.message}`);
+    } finally {
+      disabledBtns.forEach(b => { if (b) b.disabled = false; });
+    }
+  }
+
   async function unloadCurrent() {
     if (!currentFileId) return;
     _loadedFileIds.delete(currentFileId);
@@ -2238,7 +2487,9 @@
     currentOrigName = null;
     keyframeTimes = [];
     _waveData = null;
+    _wavePeakFracs = [];
     _waveFileId = null;
+    _waveNoAudio = false;
     cancelAnimationFrame(rafId);
     tlZoom = 1; tlOffset = 0;
     tlUpdateScrollbar();
@@ -2287,7 +2538,7 @@
     hide(queueProgress);
     hide(spinnerPanel);
     hide(editorPanel);
-    ctx.clearRect(0, 0, timeline.width, timeline.height);
+    ctx.clearRect(0, 0, timeline.width / (window.devicePixelRatio || 1), timeline.height / (window.devicePixelRatio || 1));
     show(loadPanel);
   }
 
@@ -2330,28 +2581,56 @@
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     const k = e.key;
     if (k === "Escape" && !hotkeysPanel.classList.contains("hidden")) { hotkeysPanel.classList.add("hidden"); return; }
+    // Undo/redo in/out markers
+    if ((e.ctrlKey || e.metaKey) && k === "z" && !e.shiftKey) { e.preventDefault(); undoMarker(); return; }
+    if ((e.ctrlKey || e.metaKey) && (k === "Z" || (k === "z" && e.shiftKey) || k === "y")) { e.preventDefault(); redoMarker(); return; }
+    // Queue keyboard controls (require a selected item)
+    if (k === "Delete" && selectedQueueIdx !== null) {
+      e.preventDefault();
+      const i = selectedQueueIdx;
+      selectedQueueIdx = null;
+      addQueueBtn.innerHTML = '<i class="ph-duotone ph-plus-circle"></i> Add to Queue';
+      clipQueue.splice(i, 1);
+      renderQueue(); drawTimeline(); return;
+    }
+    if (e.altKey && (k === "ArrowUp" || k === "ArrowDown") && selectedQueueIdx !== null) {
+      e.preventDefault();
+      const i = selectedQueueIdx;
+      const j = k === "ArrowUp" ? i - 1 : i + 1;
+      if (j >= 0 && j < clipQueue.length) {
+        [clipQueue[i], clipQueue[j]] = [clipQueue[j], clipQueue[i]];
+        selectedQueueIdx = j;
+        renderQueue(); drawTimeline();
+      }
+      return;
+    }
+    // JKL fixed shortcuts — use e.code so they work regardless of CapsLock state
     // Shift+J = set in point, Shift+L = set out point
-    if (k === "J") { e.preventDefault(); setInPoint(); return; }
-    if (k === "L") { e.preventDefault(); setOutPoint(); return; }
+    if (e.shiftKey && e.code === "KeyJ") { e.preventDefault(); setInPoint(); return; }
+    if (e.shiftKey && e.code === "KeyL") { e.preventDefault(); setOutPoint(); return; }
     // Alt+J = step back 1 frame, Alt+L = step forward 1 frame
-    if (e.altKey && k === "j") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
-    if (e.altKey && k === "l") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
+    if (e.altKey && e.code === "KeyJ") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
+    if (e.altKey && e.code === "KeyL") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
     // JKL shuttle (fixed, not remappable)
-    if (!e.altKey && (k === "j" || k === "k" || k === "l")) { e.preventDefault(); handleJKL(k, e.repeat); return; }
-    if (k === "h") { e.preventDefault(); _jklJumpBack1s(); return; }
-    if (k === hotkeys.playPause)  { e.preventDefault(); togglePlay(); }
-    else if (k === hotkeys.mute)       { e.preventDefault(); toggleMute(); }
-    else if (k === hotkeys.fullscreen) { e.preventDefault(); toggleFullscreen(); }
-    else if (k === hotkeys.setIn)      { e.preventDefault(); setInPoint(); }
-    else if (k === hotkeys.setOut)     { e.preventDefault(); setOutPoint(); }
-    else if (k === hotkeys.split)      { e.preventDefault(); splitAtPlayhead(); }
-    else if (k === hotkeys.seekBack)   { e.preventDefault(); player.currentTime = Math.max(0, player.currentTime - 5); }
-    else if (k === hotkeys.seekFwd)    { e.preventDefault(); player.currentTime = Math.min(player.duration || 0, player.currentTime + 5); }
+    if (!e.altKey && !e.shiftKey && (e.code === "KeyJ" || e.code === "KeyK" || e.code === "KeyL")) {
+      e.preventDefault();
+      handleJKL(e.code === "KeyJ" ? "j" : e.code === "KeyK" ? "k" : "l", e.repeat);
+      return;
+    }
+    if (e.code === "KeyH") { e.preventDefault(); _jklJumpBack1s(); return; }
+    if      (hotkeyMatches(hotkeys.playPause,  e)) { e.preventDefault(); togglePlay(); }
+    else if (hotkeyMatches(hotkeys.mute,       e)) { e.preventDefault(); toggleMute(); }
+    else if (hotkeyMatches(hotkeys.fullscreen, e)) { e.preventDefault(); toggleFullscreen(); }
+    else if (hotkeyMatches(hotkeys.setIn,      e)) { e.preventDefault(); setInPoint(); }
+    else if (hotkeyMatches(hotkeys.setOut,     e)) { e.preventDefault(); setOutPoint(); }
+    else if (hotkeyMatches(hotkeys.split,      e)) { e.preventDefault(); splitAtPlayhead(); }
+    else if (hotkeyMatches(hotkeys.seekBack,   e)) { e.preventDefault(); player.currentTime = Math.max(0, player.currentTime - 5); }
+    else if (hotkeyMatches(hotkeys.seekFwd,    e)) { e.preventDefault(); player.currentTime = Math.min(player.duration || 0, player.currentTime + 5); }
   });
 
   document.addEventListener("keyup", (e) => {
-    if (e.key === "j" && !e.altKey) _jklStopScrub(); // release j → stop backward scrub
-    if (e.key === "l") _lStopHoldRamp();              // release l → stop forward ramp
+    if (e.code === "KeyJ" && !e.altKey) _jklStopScrub(); // release j → stop backward scrub
+    if (e.code === "KeyL") _lStopHoldRamp();              // release l → stop forward ramp
   });
 
   // ── Init ──────────────────────────────────────────────────────────────────

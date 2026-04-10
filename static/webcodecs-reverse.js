@@ -36,13 +36,15 @@
   let _ready = false;
 
   // ── Playback state ──────────────────────────────────────────────────────────
-  let _active    = false;
-  let _rafId     = null;
-  let _gopFrames = [];  // VideoFrame[] for the current GOP (sorted by PTS)
-  let _gopIdx    = -1;  // which _gops[] entry is loaded
-  let _frameIdx  = -1;  // position in _gopFrames going backward
-  let _onStep    = null;
-  let _decoding  = false;
+  let _active     = false;
+  let _rafId      = null;
+  let _gopFrames  = [];  // VideoFrame[] for the current GOP (sorted by PTS)
+  let _gopIdx     = -1;  // which _gops[] entry is loaded
+  let _frameIdx   = -1;  // position in _gopFrames going backward
+  let _onStep     = null;
+  let _decoding   = false;
+  let _lastDrawMs = 0;   // DOMHighResTimeStamp of the last rendered frame
+  let _frameMs    = 1000 / 30; // estimated ms per frame (updated from actual PTSes)
 
   // ── init ────────────────────────────────────────────────────────────────────
   async function init(fileId, canvas) {
@@ -169,17 +171,19 @@
 
   // ── stop ────────────────────────────────────────────────────────────────────
   function stop() {
-    _active   = false;
+    _active     = false;
     if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
     _freeGopFrames();
-    _gopIdx   = -1;
-    _frameIdx = -1;
-    _decoding = false;
-    _onStep   = null;
+    _gopIdx     = -1;
+    _frameIdx   = -1;
+    _decoding   = false;
+    _onStep     = null;
+    _lastDrawMs = 0;
+    _frameMs    = 1000 / 30;
   }
 
   // ── rAF loop ─────────────────────────────────────────────────────────────────
-  function _rafStep() {
+  function _rafStep(now) {
     if (!_active) return;
 
     if (_frameIdx < 0) {
@@ -219,11 +223,23 @@
       return;
     }
 
+    // Frame-rate throttle: wait until ~1 frame interval has elapsed
+    if (_lastDrawMs > 0 && (now - _lastDrawMs) < _frameMs * 0.85) {
+      _rafId = requestAnimationFrame(_rafStep);
+      return;
+    }
+
     // Draw the next frame in reverse
     const frame = _gopFrames[_frameIdx--];
+    // Update frame interval from the PTS gap to the next frame (going backward)
+    if (_frameIdx >= 0) {
+      const dtUs = frame.timestamp - _gopFrames[_frameIdx].timestamp;
+      if (dtUs > 0) _frameMs = dtUs / 1000;
+    }
     _ctx.drawImage(frame, 0, 0, _canvas.width, _canvas.height);
     const t = frame.timestamp / 1_000_000; // µs → seconds
     frame.close();
+    _lastDrawMs = now;
 
     if (_onStep) _onStep(t);
     _rafId = requestAnimationFrame(_rafStep);
@@ -250,6 +266,7 @@
 
       _gopFrames = frames;
       _gopIdx    = gi;
+      _lastDrawMs = 0; // draw first frame immediately
 
       // Find the starting frame: last frame with PTS ≤ currentTime
       const tUs = currentTime * 1_000_000;

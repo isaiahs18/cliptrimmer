@@ -46,6 +46,18 @@ class TrimRequest(BaseModel):
     output_folder_id: Optional[str] = None
 
 
+class ConcatClip(BaseModel):
+    file_id: str
+    start: float
+    end: float
+
+
+class ConcatRequest(BaseModel):
+    clips: list[ConcatClip]
+    output_filename: Optional[str] = None
+    output_folder_id: Optional[str] = None
+
+
 # ── Folder listing ─────────────────────────────────────────────────────────────
 
 @app.get("/api/folder")
@@ -204,6 +216,9 @@ def trim_and_upload(req: TrimRequest):
     if req.start < 0 or req.end <= req.start:
         raise HTTPException(status_code=400, detail="Invalid start/end times")
 
+    if req.output_filename and "\x00" in req.output_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     input_path = Path(session["local_path"])
     orig_name = Path(session["filename"])
 
@@ -234,6 +249,70 @@ def trim_and_upload(req: TrimRequest):
             trimmed_path.unlink(missing_ok=True)
 
     return {"ok": True, "url": web_url, "filename": trimmed_filename}
+
+
+# ── Concat & upload ────────────────────────────────────────────────────────────
+
+@app.post("/api/concat")
+def concat_and_upload(req: ConcatRequest):
+    if not req.clips:
+        raise HTTPException(status_code=400, detail="No clips provided")
+    if len(req.clips) > 50:
+        raise HTTPException(status_code=400, detail="Too many clips (max 50)")
+
+    if req.output_filename and "\x00" in req.output_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # Resolve all sessions up front so we fail fast before any ffmpeg work
+    sessions = []
+    for clip in req.clips:
+        session = _sessions.get(clip.file_id)
+        if not session:
+            raise HTTPException(status_code=404,
+                                detail=f"File not loaded: {clip.file_id}")
+        if clip.start < 0 or clip.end <= clip.start:
+            raise HTTPException(status_code=400,
+                                detail=f"Invalid start/end for clip {clip.file_id}")
+        sessions.append(session)
+
+    # Determine output folder from first clip's parent
+    parent = req.output_folder_id or sessions[0]["parent_folder_id"]
+    if not parent:
+        raise HTTPException(status_code=400,
+                            detail="Could not determine output folder. Set a clips output folder.")
+
+    orig_name = Path(sessions[0]["filename"])
+    if req.output_filename and req.output_filename.strip():
+        custom = Path(req.output_filename.strip())
+        out_filename = custom.stem + orig_name.suffix
+    else:
+        out_filename = f"{orig_name.stem}_joined{orig_name.suffix}"
+
+    if not _trim_semaphore.acquire(timeout=120):
+        raise HTTPException(status_code=503, detail="Trim queue full — try again in a moment.")
+
+    temp_clips: list[Path] = []
+    concat_path = None
+    try:
+        # Trim each segment to a temp file
+        for clip, session in zip(req.clips, sessions):
+            p = trimmer.trim(Path(session["local_path"]), clip.start, clip.end)
+            temp_clips.append(p)
+
+        concat_path = trimmer.concat(temp_clips)
+        web_url = drive.upload_file(concat_path, out_filename, parent)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Concat failed: {e}")
+    finally:
+        _trim_semaphore.release()
+        for p in temp_clips:
+            p.unlink(missing_ok=True)
+        if concat_path:
+            concat_path.unlink(missing_ok=True)
+
+    return {"ok": True, "url": web_url, "filename": out_filename}
 
 
 # ── File metadata (duration via ffprobe) ──────────────────────────────────────

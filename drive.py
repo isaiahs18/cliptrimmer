@@ -97,12 +97,22 @@ def cleanup(file_id: str, filename: str):
 
 
 def list_folder(folder_id: str) -> list[dict]:
-    """Return video files in a Drive folder, newest first."""
+    """Return ALL video files in a Drive folder, newest first (handles pagination)."""
     svc = _service()
-    results = svc.files().list(
-        q=f"'{folder_id}' in parents and mimeType contains 'video/' and trashed=false",
-        fields="files(id,name,mimeType,size,modifiedTime)",
-        orderBy="modifiedTime desc",
-        pageSize=100,
-    ).execute()
-    return results.get("files", [])
+    files = []
+    page_token = None
+    while True:
+        kwargs = dict(
+            q=f"'{folder_id}' in parents and mimeType contains 'video/' and trashed=false",
+            fields="nextPageToken,files(id,name,mimeType,size,modifiedTime)",
+            orderBy="modifiedTime desc",
+            pageSize=200,
+        )
+        if page_token:
+            kwargs["pageToken"] = page_token
+        results = svc.files().list(**kwargs).execute()
+        files.extend(results.get("files", []))
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+    return files
