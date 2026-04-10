@@ -1,5 +1,7 @@
 import subprocess
 import json as _json
+import struct
+import base64
 import threading
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Header
@@ -279,6 +281,121 @@ def get_keyframes(file_id: str):
         if "K" in p.get("flags", "") and p.get("pts_time") not in (None, "N/A")
     ]
     return {"keyframes": keyframes}
+
+
+# ── Per-frame metadata (WebCodecs reverse scrub) ──────────────────────────────
+
+@app.get("/api/frames/{file_id}")
+def get_frames(file_id: str):
+    """Return per-packet byte positions, sizes, timestamps, and keyframe flags.
+    Used by the WebCodecs-based reverse scrub feature."""
+    session = _sessions.get(file_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="File not loaded")
+
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_packets",
+            "-show_entries", "packet=pts_time,pos,size,flags",
+            "-of", "csv=p=0",
+            session["local_path"],
+        ],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail="ffprobe frame scan failed")
+
+    frames = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(",")
+        if len(parts) < 4:
+            continue
+        t_s, pos_s, size_s, flags_s = parts[0], parts[1], parts[2], parts[3]
+        if t_s in ("N/A", "") or pos_s in ("N/A", "") or size_s in ("N/A", ""):
+            continue
+        try:
+            frames.append([
+                round(float(t_s), 6),
+                int(pos_s),
+                int(size_s),
+                1 if flags_s.startswith("K") else 0,
+            ])
+        except (ValueError, IndexError):
+            continue
+
+    return {"frames": frames}
+
+
+# ── Codec description (WebCodecs decoder config) ──────────────────────────────
+
+def _find_avcc_bytes(filepath: str) -> bytes | None:
+    """Brute-force scan the first 2 MB of an MP4 for the avcC box content."""
+    try:
+        with open(filepath, "rb") as f:
+            data = f.read(2 * 1024 * 1024)
+    except OSError:
+        return None
+    idx = data.find(b"avcC")
+    if idx < 4:
+        return None
+    try:
+        box_size = struct.unpack(">I", data[idx - 4 : idx])[0]
+    except struct.error:
+        return None
+    content_end = idx - 4 + box_size
+    if content_end > len(data):
+        return None
+    return data[idx + 4 : content_end]
+
+
+@app.get("/api/codec-desc/{file_id}")
+def get_codec_desc(file_id: str):
+    """Return codec string, avcC description bytes (base64), and dimensions.
+    Currently supports H.264 only; returns null codec for other formats."""
+    session = _sessions.get(file_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="File not loaded")
+
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,width,height",
+            "-of", "json",
+            session["local_path"],
+        ],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail="ffprobe codec scan failed")
+
+    streams = _json.loads(result.stdout).get("streams", [])
+    if not streams:
+        return {"codec": None, "desc_b64": None, "width": 0, "height": 0}
+
+    s = streams[0]
+    width  = s.get("width",  0)
+    height = s.get("height", 0)
+
+    if s.get("codec_name") != "h264":
+        return {"codec": None, "desc_b64": None, "width": width, "height": height}
+
+    avcc = _find_avcc_bytes(session["local_path"])
+    if not avcc or len(avcc) < 4:
+        return {"codec": None, "desc_b64": None, "width": width, "height": height}
+
+    # Codec string from AVCDecoderConfigurationRecord bytes 1-3
+    codec_str = f"avc1.{avcc[1]:02X}{avcc[2]:02X}{avcc[3]:02X}"
+
+    return {
+        "codec":    codec_str,
+        "desc_b64": base64.b64encode(avcc).decode(),
+        "width":    width,
+        "height":   height,
+    }
+
 
 @app.post("/api/unload/{file_id}")
 def unload_by_id(file_id: str):

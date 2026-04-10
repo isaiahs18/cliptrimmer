@@ -25,6 +25,11 @@
   let _jklSpeed      = 0;    // 0 = paused, positive = forward playbackRate
   // Scrub state is declared in the JKL shuttle section below
   const _JKL_FRAME   = 1 / 30; // seconds per single-tap j step (~1 frame @ 30fps)
+  const MIN_CLIP_GAP  = 5 / 30; // minimum clip length: 5 frames @ 30fps
+
+  // ── WebCodecs state ──────────────────────────────────────────────────────────
+  let _wcReady     = false; // true when WCReverse.init succeeded for current file
+  let _wcScrubTime = 0;     // last PTS reported by WCReverse.startReverse onStep
 
   const CLIP_COLORS = [
     "rgba(79,142,247,0.35)",   // blue
@@ -97,6 +102,7 @@
   const frameFwdBtn       = document.getElementById("frame-fwd-btn");
   const logPanel          = document.getElementById("log-panel");
   const logList           = document.getElementById("log-list");
+  const scrubCanvas       = document.getElementById("scrub-canvas");
   const logToggleBtn      = document.getElementById("log-toggle-btn");
   const logClearBtn       = document.getElementById("log-clear-btn");
   const logCopyBtn        = document.getElementById("log-copy-btn");
@@ -226,7 +232,7 @@
   fullscreenBtn.addEventListener("click", toggleFullscreen);
   player.addEventListener("click", togglePlay);
 
-  player.addEventListener("play",    () => { playPauseBtn.textContent = "\u23F8"; _decodeRecoveries = 0; });
+  player.addEventListener("play",    () => { playPauseBtn.textContent = "\u23F8"; _decodeRecoveries = 0; scrubCanvas.style.display = "none"; });
   player.addEventListener("pause",   () => {
     playPauseBtn.textContent = "\u25B6";
     _jklStopScrub();
@@ -501,13 +507,34 @@
     _jklScrubbing   = false;
     _jklScrubReady  = false;
     _jklScrubDone   = false;
+    // Stop WebCodecs playback and commit the final scrub position to the player
+    if (_wcReady && WCReverse.supported) {
+      WCReverse.stop();
+      if (_wcScrubTime > 0) {
+        player.currentTime = _wcScrubTime;
+        _wcScrubTime = 0;
+      }
+    }
   }
 
   // Start j-hold scrub: pause if playing, then begin paced backward keyframe steps.
   function _jklStartScrub() {
     if (_jklScrubbing) return;
     if (_jklSpeed > 0) { player.pause(); player.playbackRate = 1; _jklSpeed = 0; }
-    _jklScrubbing   = true;
+    _jklScrubbing = true;
+
+    // ── WebCodecs path: smooth per-frame reverse ──────────────────────────────
+    if (_wcReady && WCReverse.supported) {
+      scrubCanvas.style.display = "block";
+      WCReverse.startReverse(player.currentTime, t => { _wcScrubTime = t; })
+        .catch(() => {
+          scrubCanvas.style.display = "none";
+          _jklScrubbing = false;
+        });
+      return;
+    }
+
+    // ── Fallback: keyframe-only paced scrub ───────────────────────────────────
     _jklScrubHoldT0 = Date.now();
     _jklScrubHoldMs = 0;
     _jklScrubReady  = false;
@@ -555,12 +582,20 @@
       // Single tap: stop any forward play, step back one frame.
       _jklStopScrub();
       if (_jklSpeed > 0) _jklSet(0);
-      player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME);
+      const tapTarget = Math.max(0, player.currentTime - _JKL_FRAME);
+      if (_wcReady && WCReverse.supported) {
+        // Show exact decoded frame on canvas; sync player time after
+        scrubCanvas.style.display = "block";
+        WCReverse.seekFrame(tapTarget).then(() => { player.currentTime = tapTarget; });
+      } else {
+        player.currentTime = keyframeTimes.length ? (snapToKeyframe(tapTarget) ?? tapTarget) : tapTarget;
+      }
       return;
     }
     // key === "l"
     if (repeat) return; // l hold doesn’t ramp further
     _jklStopScrub();
+    scrubCanvas.style.display = "none"; // hide canvas when starting forward play
     _jklSet(_jklSpeed > 0 ? _jklSpeed + 1 : 1);
   }
 
@@ -884,6 +919,7 @@
 
   function stopTimelineLoop() {
     cancelAnimationFrame(rafId);
+    rafId = null;
     drawTimeline();
     drawWaveform();
   }
@@ -1033,13 +1069,13 @@
       timelineSeek(e.clientX);
     } else if (dragTarget === "in") {
       const t = clientXToTime(e.clientX);
-      inPoint = Math.max(0, Math.min(t, outPoint - 0.01));
+      inPoint = Math.max(0, Math.min(t, outPoint - MIN_CLIP_GAP));
       inTimeInput.value = fmtTime(inPoint);
       updateRangeDisplay();
       scheduleDraw();
     } else if (dragTarget === "out") {
       const t = clientXToTime(e.clientX);
-      outPoint = Math.min(dur, Math.max(t, inPoint + 0.01));
+      outPoint = Math.min(dur, Math.max(t, inPoint + MIN_CLIP_GAP));
       outTimeInput.value = fmtTime(outPoint);
       updateRangeDisplay();
       scheduleDraw();
@@ -1048,11 +1084,11 @@
       const item = clipQueue[dragTarget.qi];
       if (!item) { dragTarget = null; return; }
       if (dragTarget.type === "clip-start") {
-        item.start = Math.max(0, Math.min(t, item.end - 0.01));
+        item.start = Math.max(0, Math.min(t, item.end - MIN_CLIP_GAP));
         inPoint = item.start;
         inTimeInput.value = fmtTime(inPoint);
       } else {
-        item.end = Math.min(dur, Math.max(t, item.start + 0.01));
+        item.end = Math.min(dur, Math.max(t, item.start + MIN_CLIP_GAP));
         outPoint = item.end;
         outTimeInput.value = fmtTime(outPoint);
       }
@@ -1094,25 +1130,26 @@
   });
   timeline.addEventListener("mouseleave", () => { timeline.style.cursor = "crosshair"; });
 
-  // Mouse wheel = zoom in/out centered on cursor; double-click = reset zoom
-  timeline.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    if (!player.duration) return;
-    const rect       = timeline.getBoundingClientRect();
-    const x          = e.clientX - rect.left;
-    const cursorTime = tlOffset + (x / timeline.width) * tlViewDur();
-    const factor     = e.deltaY < 0 ? 1.3 : 1 / 1.3;
-    tlZoom   = Math.max(1, Math.min(200, tlZoom * factor));
-    tlOffset = tlZoom <= 1 ? 0 : tlClampOff(cursorTime - (x / timeline.width) * tlViewDur());
-    tlUpdateScrollbar();
-    scheduleDraw();
-  }, { passive: false });
-
+  // Double-click = reset zoom
   timeline.addEventListener("dblclick", () => {
     tlZoom = 1; tlOffset = 0;
     tlUpdateScrollbar();
     scheduleDraw();
   });
+
+  // +/- zoom buttons
+  function tlZoomStep(factor) {
+    if (!player.duration) return;
+    const mid = tlOffset + tlViewDur() / 2;
+    tlZoom    = Math.max(1, Math.min(200, tlZoom * factor));
+    tlOffset  = tlZoom <= 1 ? 0 : tlClampOff(mid - tlViewDur() / 2);
+    tlUpdateScrollbar();
+    scheduleDraw();
+  }
+  const _zoomInBtn  = document.getElementById("tl-zoom-in");
+  const _zoomOutBtn = document.getElementById("tl-zoom-out");
+  if (_zoomInBtn)  _zoomInBtn.addEventListener("click",  () => tlZoomStep(1.5));
+  if (_zoomOutBtn) _zoomOutBtn.addEventListener("click", () => tlZoomStep(1 / 1.5));
 
   // Scrollbar thumb drag to pan
   const _sbThumb = document.getElementById("tl-scrollbar-thumb");
@@ -1556,6 +1593,15 @@
     outFilenameInput.value = defaultClipName(currentOrigName, clipIndex);
     fetchKeyframes(fileId);
     decodeWaveform(fileId);
+    // Initialise WebCodecs reverse scrub for this file (non-blocking)
+    scrubCanvas.style.display = "none";
+    _wcReady     = false;
+    _wcScrubTime = 0;
+    if (WCReverse.supported) {
+      WCReverse.init(fileId, scrubCanvas)
+        .then(ok => { _wcReady = ok; })
+        .catch(() => { _wcReady = false; });
+    }
   }
 
   loadBtn.addEventListener("click", () => {
@@ -1683,14 +1729,16 @@
   // ── Trim point controls ───────────────────────────────────────────────────
 
   function setInPoint() {
-    inPoint = player.currentTime;
+    const t = player.currentTime;
+    inPoint = Math.min(t, outPoint - MIN_CLIP_GAP);
     inTimeInput.value = fmtTime(inPoint);
     updateRangeDisplay();
     drawTimeline();
   }
 
   function setOutPoint() {
-    outPoint = player.currentTime;
+    const t = player.currentTime;
+    outPoint = Math.max(t, inPoint + MIN_CLIP_GAP);
     outTimeInput.value = fmtTime(outPoint);
     updateRangeDisplay();
     drawTimeline();
@@ -2172,6 +2220,12 @@
     player.load();
     _playerResetting = false;
 
+    // Clean up WebCodecs
+    if (WCReverse.supported) WCReverse.stop();
+    _wcReady     = false;
+    _wcScrubTime = 0;
+    scrubCanvas.style.display = "none";
+
     fileOrigNames.clear();
 
     // Unload all server-resident files except currentFileId (handled by unloadCurrent below)
@@ -2245,6 +2299,9 @@
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     const k = e.key;
     if (k === "Escape" && !hotkeysPanel.classList.contains("hidden")) { hotkeysPanel.classList.add("hidden"); return; }
+    // Shift+J = set in point, Shift+L = set out point
+    if (k === "J") { e.preventDefault(); setInPoint(); return; }
+    if (k === "L") { e.preventDefault(); setOutPoint(); return; }
     // JKL shuttle (fixed, not remappable)
     if (k === "j" || k === "k" || k === "l") { e.preventDefault(); handleJKL(k, e.repeat); return; }
     if (k === "h") { e.preventDefault(); _jklJumpBack1s(); return; }

@@ -129,6 +129,7 @@
                 <video id="player" preload="metadata">
                   Your browser does not support HTML5 video.
                 </video>
+                <canvas id="scrub-canvas"></canvas>
               </div>
 
               <!-- Playback speed -->
@@ -164,8 +165,12 @@
 
           <!-- Timeline (full width) -->
           <div class="timeline-wrap">
-            <canvas id="timeline" height="100"></canvas>
-            <canvas id="waveform" height="48"></canvas>
+            <div class="tl-header">
+              <button id="tl-zoom-out" class="tl-zoom-btn" title="Zoom out">&#8722;</button>
+              <button id="tl-zoom-in"  class="tl-zoom-btn" title="Zoom in">&#43;</button>
+            </div>
+            <canvas id="timeline" height="50"></canvas>
+            <canvas id="waveform" height="24"></canvas>
             <div class="tl-scrollbar-row">
               <div id="tl-scrollbar" class="tl-scrollbar hidden">
                 <div id="tl-scrollbar-thumb" class="tl-scrollbar-thumb"></div>
@@ -237,6 +242,7 @@
     <ul id="log-list"></ul>
   </div>
 
+  <script src="/webcodecs-reverse.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
