@@ -462,6 +462,26 @@
   let _jklScrubReady   = false; // timer has elapsed (waiting for seek to complete)
   let _jklScrubDone    = false; // seek has completed (waiting for timer)
 
+  // ── L-hold forward speed ramp ─────────────────────────────────────────────
+  let _lHoldRampTimer = null;
+  function _lStartHoldRamp() {
+    clearTimeout(_lHoldRampTimer);
+    let elapsed = 0;
+    const step = () => {
+      if (_jklSpeed <= 0) return;
+      _jklSet(Math.min(_jklSpeed + 1, 8));
+      elapsed += 400;
+      if (_jklSpeed < 8) {
+        _lHoldRampTimer = setTimeout(step, Math.max(150, 600 - elapsed));
+      }
+    };
+    _lHoldRampTimer = setTimeout(step, 700);
+  }
+  function _lStopHoldRamp() {
+    clearTimeout(_lHoldRampTimer);
+    _lHoldRampTimer = null;
+  }
+
   // Called when BOTH the interval timer and the seeked event have fired.
   function _jklScrubMaybeStep() {
     if (!_jklScrubbing || !_jklScrubReady || !_jklScrubDone) return;
@@ -507,12 +527,20 @@
     _jklScrubbing   = false;
     _jklScrubReady  = false;
     _jklScrubDone   = false;
-    // Stop WebCodecs playback and commit the final scrub position to the player
+    // Stop WebCodecs playback and commit the final scrub position to the player.
+    // Must snap to a keyframe — the <video> element cannot decode from delta frames.
     if (_wcReady && WCReverse.supported) {
       WCReverse.stop();
       if (_wcScrubTime > 0) {
-        player.currentTime = _wcScrubTime;
+        const snapT = keyframeTimes.length
+          ? (snapToKeyframe(_wcScrubTime) ?? _wcScrubTime)
+          : _wcScrubTime;
+        // Hide canvas once the video element has seeked to the keyframe
+        player.addEventListener("seeked", () => { scrubCanvas.style.display = "none"; }, { once: true });
+        player.currentTime = snapT;
         _wcScrubTime = 0;
+      } else {
+        scrubCanvas.style.display = "none";
       }
     }
   }
@@ -575,28 +603,23 @@
   // k → stop everything
   function handleJKL(key, repeat) {
     if (!player.duration) return;
-    if (key === "k") { _jklSet(0); return; }
+    if (key === "k") { _lStopHoldRamp(); _jklSet(0); return; }
     if (key === "j") {
       if (player.currentTime <= 0) return;
       if (repeat) { _jklStartScrub(); return; }
-      // Single tap: stop any forward play, step back one frame.
+      // Single tap: stop any forward play, step back 30 frames (~1 second).
       _jklStopScrub();
       if (_jklSpeed > 0) _jklSet(0);
-      const tapTarget = Math.max(0, player.currentTime - _JKL_FRAME);
-      if (_wcReady && WCReverse.supported) {
-        // Show exact decoded frame on canvas; sync player time after
-        scrubCanvas.style.display = "block";
-        WCReverse.seekFrame(tapTarget).then(() => { player.currentTime = tapTarget; });
-      } else {
-        player.currentTime = keyframeTimes.length ? (snapToKeyframe(tapTarget) ?? tapTarget) : tapTarget;
-      }
+      player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME * 30);
       return;
     }
     // key === "l"
-    if (repeat) return; // l hold doesn’t ramp further
+    if (repeat) return; // ramp handled by _lStartHoldRamp timer
     _jklStopScrub();
     scrubCanvas.style.display = "none"; // hide canvas when starting forward play
+    _lStopHoldRamp();
     _jklSet(_jklSpeed > 0 ? _jklSpeed + 1 : 1);
+    _lStartHoldRamp();
   }
 
 
@@ -989,7 +1012,7 @@
     // returns "in" | "out" | {type:"clip-start"|"clip-end", qi} | null
     const rect   = timeline.getBoundingClientRect();
     const px     = clientX - rect.left;
-    const W      = timeline.width;
+    const W      = rect.width;
     const thresh = 10;
     if (Math.abs(px - tlTimeToX(inPoint,  W)) <= thresh) return "in";
     if (Math.abs(px - tlTimeToX(outPoint, W)) <= thresh) return "out";
@@ -1006,7 +1029,7 @@
     const rect = timeline.getBoundingClientRect();
     const x    = clientX - rect.left;
     return Math.max(0, Math.min(player.duration || 0,
-      tlOffset + (x / timeline.width) * tlViewDur()));
+      tlOffset + (x / rect.width) * tlViewDur()));
   }
 
   function timelineSeek(clientX) {
@@ -1048,6 +1071,9 @@
       }
     } else {
       dragTarget = "seek";
+      // Abandon any in-flight seek so this click always dispatches immediately
+      _isSeeking = false;
+      _pendingScrubTime = null;
       // Pause while scrubbing so the decoder isn't overwhelmed
       wasPlaying = !player.paused;
       if (wasPlaying) player.pause();
@@ -1058,7 +1084,8 @@
   window.addEventListener("mousemove", (e) => {
     if (tlPanning) {
       const dx = e.clientX - tlPanStartX;
-      tlOffset = tlClampOff(tlPanStartOff - (dx / timeline.width) * tlViewDur());
+      const _tlW = timeline.getBoundingClientRect().width;
+      tlOffset = tlClampOff(tlPanStartOff - (dx / _tlW) * tlViewDur());
       tlUpdateScrollbar();
       scheduleDraw();
       return;
@@ -2302,8 +2329,11 @@
     // Shift+J = set in point, Shift+L = set out point
     if (k === "J") { e.preventDefault(); setInPoint(); return; }
     if (k === "L") { e.preventDefault(); setOutPoint(); return; }
+    // Alt+J = step back 1 frame, Alt+L = step forward 1 frame
+    if (e.altKey && k === "j") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
+    if (e.altKey && k === "l") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
     // JKL shuttle (fixed, not remappable)
-    if (k === "j" || k === "k" || k === "l") { e.preventDefault(); handleJKL(k, e.repeat); return; }
+    if (!e.altKey && (k === "j" || k === "k" || k === "l")) { e.preventDefault(); handleJKL(k, e.repeat); return; }
     if (k === "h") { e.preventDefault(); _jklJumpBack1s(); return; }
     if (k === hotkeys.playPause)  { e.preventDefault(); togglePlay(); }
     else if (k === hotkeys.mute)       { e.preventDefault(); toggleMute(); }
@@ -2316,7 +2346,8 @@
   });
 
   document.addEventListener("keyup", (e) => {
-    if (e.key === "j") _jklStopScrub(); // release j → stop backward scrub
+    if (e.key === "j" && !e.altKey) _jklStopScrub(); // release j → stop backward scrub
+    if (e.key === "l") _lStopHoldRamp();              // release l → stop forward ramp
   });
 
   // ── Init ──────────────────────────────────────────────────────────────────
