@@ -299,6 +299,7 @@
   player.addEventListener("seeked", () => {
     if (!_playerResetting) _decodeRecoveries = 0;
     _isSeeking = false;
+    _seekDone();
     // Dispatch the latest scrub position that queued up while we were seeking
     if (dragTarget === "seek" && _pendingScrubTime !== null) {
       _isSeeking = true;
@@ -309,9 +310,34 @@
   let _stallTimer = null;
   let _playerResetting = false; // true while we're intentionally clearing the player src
   let _decodeRecoveries = 0;    // consecutive DECODE recovery attempts (reset on successful play)
+  let _seekActive = false;      // true whenever a programmatic seek is in flight (J tap/hold, frame step, etc.)
+  let _seekReadyTimer = null;   // timer to hide the "✓ Ready" chip after a short delay
+
+  const seekStatusEl = document.getElementById("seek-status");
+
+  function _seekStart() {
+    _seekActive = true;
+    clearTimeout(_seekReadyTimer);
+    if (seekStatusEl) {
+      seekStatusEl.textContent = "⟳ Seeking…";
+      seekStatusEl.className = "seek-status seeking";
+    }
+  }
+
+  function _seekDone() {
+    _seekActive = false;
+    if (seekStatusEl) {
+      seekStatusEl.textContent = "✓ Good to go";
+      seekStatusEl.className = "seek-status ready";
+      clearTimeout(_seekReadyTimer);
+      _seekReadyTimer = setTimeout(() => {
+        seekStatusEl.className = "seek-status hidden";
+      }, 1800);
+    }
+  }
   function armStallTimer() {
     clearTimeout(_stallTimer);
-    if (_playerResetting || player.paused || _jklScrubbing) return;
+    if (_playerResetting || player.paused || _jklScrubbing || _seekActive) return;
     _stallTimer = setTimeout(() => {
       if (_playerResetting || player.paused || !currentFileId) return;
       // Fire for any readyState — readyState=4 can still stall when the network stream drops
@@ -338,7 +364,7 @@
         }, { once: true });
       };
       player.addEventListener("canplay", _stallCanplayFn, { once: true });
-    }, 5000);
+    }, 10000);
   }
 
   player.addEventListener("waiting", () => {
@@ -359,18 +385,23 @@
     const code = player.error?.code;
     const codeNames = { 1:"ABORTED", 2:"NETWORK", 3:"DECODE", 4:"SRC_NOT_SUPPORTED" };
 
-    // DECODE errors during seek-scrub (timeline drag or J-hold backward scrub) are spurious.
-    // Chromium fails on non-keyframe seeks — just clear in-flight state and continue.
-    if (code === 3 && _jklScrubbing && currentFileId) {
-      // J-hold scrub: the next step will issue the following seek — nothing to do.
-      logAppend("WARN", `DECODE during J-scrub at ${player.currentTime.toFixed(2)}s — continuing`);
+    // DECODE errors on non-keyframe seeks are normal in Chromium (is_key_frame=0).
+    // Suppress recovery for all programmatic seeks (_seekActive) and J-hold scrub.
+    if (code === 3 && _jklScrubbing) {
+      // J-hold: advance to next step.
       _jklScrubDone = true;
       _jklScrubMaybeStep();
       return;
     }
+    if (code === 3 && _seekActive) {
+      // Any other programmatic seek (J tap, frame step, H) landed on a non-keyframe.
+      // The seek is already done from the browser's perspective; just mark it complete.
+      logAppend("WARN", `DECODE on seek at ${player.currentTime.toFixed(2)}s (non-keyframe) — ignored`);
+      _seekDone();
+      return;
+    }
     if (code === 3 && dragTarget === "seek" && currentFileId) {
       // Timeline scrub: clear the in-flight flag and dispatch any pending position.
-      logAppend("WARN", `DECODE during scrub at ${player.currentTime.toFixed(2)}s — skipping to next position`);
       _isSeeking = false;
       if (_pendingScrubTime !== null) {
         _isSeeking = true;
@@ -629,6 +660,7 @@
     }, interval);
 
     // Issue the seek — _jklScrubFn (seeked handler) will set _jklScrubDone
+    _seekStart();
     player.currentTime = target;
   }
 
@@ -698,6 +730,7 @@
   function _jklJumpBack1s() {
     if (!player.duration) return;
     const target = player.currentTime - 1;
+    _seekStart();
     if (target <= 0) { player.currentTime = 0; return; }
     player.currentTime = keyframeTimes.length ? (snapToKeyframe(target) ?? target) : target;
   }
@@ -725,10 +758,12 @@
     if (key === "j") {
       if (player.currentTime <= 0) return;
       if (repeat) { _jklStartScrub(); return; }
-      // Single tap: stop any forward play, step back 30 frames (~1 second).
+      // Single tap: stop any forward play, step back ~1 second snapped to a keyframe.
       _jklStopScrub();
       if (_jklSpeed > 0) _jklSet(0);
-      player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME * 30);
+      _seekStart();
+      const _jtTarget = Math.max(0, player.currentTime - _JKL_FRAME * 30);
+      player.currentTime = keyframeTimes.length ? (snapToKeyframe(_jtTarget) ?? _jtTarget) : _jtTarget;
       return;
     }
     // key === "l"
@@ -1557,9 +1592,17 @@
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   async function checkAuth() {
-    const res = await fetch("/auth/status");
-    const data = await res.json();
-    if (data.authenticated) {
+    let authenticated = false;
+    try {
+      const res = await fetch("/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        authenticated = !!data.authenticated;
+      }
+    } catch (_) {
+      // network error or cold-start timeout — treat as not connected
+    }
+    if (authenticated) {
       authLabel.textContent = "Connected to Drive";
       authBtn.innerHTML = '<i class="ph-duotone ph-sign-out"></i> Disconnect';
       authBtn.classList.remove("hidden");
@@ -2006,6 +2049,7 @@
     if (!player.duration) return;
     const step = frames / 30; // 20 frames at ~30 fps
     player.pause();
+    _seekStart();
     player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + dir * step));
     drawTimeline();
   }
@@ -2680,8 +2724,8 @@
     }
     // JKL fixed shortcuts — use e.code so they work regardless of CapsLock state
     // Shift+J = step back 1 frame, Shift+L = step forward 1 frame
-    if (e.shiftKey && e.code === "KeyJ") { e.preventDefault(); if (player.duration) player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); return; }
-    if (e.shiftKey && e.code === "KeyL") { e.preventDefault(); if (player.duration) player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); return; }
+    if (e.shiftKey && e.code === "KeyJ") { e.preventDefault(); if (player.duration) { _seekStart(); player.currentTime = Math.max(0, player.currentTime - _JKL_FRAME); } return; }
+    if (e.shiftKey && e.code === "KeyL") { e.preventDefault(); if (player.duration) { _seekStart(); player.currentTime = Math.min(player.duration, player.currentTime + _JKL_FRAME); } return; }
     // Alt+J = set in point, Alt+L = set out point
     if (e.altKey && e.code === "KeyJ") { e.preventDefault(); setInPoint(); return; }
     if (e.altKey && e.code === "KeyL") { e.preventDefault(); setOutPoint(); return; }

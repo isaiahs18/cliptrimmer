@@ -775,6 +775,32 @@ button.small {
   color: var(--muted);
 }
 
+/* ── Seek status chip ────────────────────────────────────────────────── */
+.seek-status {
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  margin-left: 0.25rem;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+}
+.seek-status.seeking {
+  background: rgba(79,142,247,0.18);
+  border: 1px solid rgba(79,142,247,0.4);
+  color: #6ba3ff;
+  animation: seek-pulse 1s ease-in-out infinite;
+}
+.seek-status.ready {
+  background: rgba(76,175,125,0.18);
+  border: 1px solid rgba(76,175,125,0.4);
+  color: var(--success);
+}
+@keyframes seek-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
 /* ── Hotkeys panel ───────────────────────────────────────────────────── */
 #hotkeys-panel {
   background: var(--surface);
