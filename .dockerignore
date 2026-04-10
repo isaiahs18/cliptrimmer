@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+token.json
+.oauth_state
+agent-browser.json
+/tmp/
+nohup.out
+*.log
+.agents/
+skills-lock.json
